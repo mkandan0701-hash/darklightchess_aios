@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findBestCoach, Coach } from '@/lib/coachMatcher'
+import { getCoachPool } from '@/lib/coaches'
 import { sendWelcomeEmail, sendEmailToCoach } from '@/lib/emailSender'
+import { sendWelcomeWhatsApp } from '@/lib/whatsappSender'
+import { validateAndCreateLead } from '@/lib/leadService'
 
-interface Lead {
+interface LeadPayload {
   name: string
   email: string
   phone: string
@@ -10,29 +13,20 @@ interface Lead {
   available_days: string[]
   available_time: string
   notes?: string
-  leadId?: string
-  status?: string
-  timestamp?: string
 }
-
-const mockCoaches: Coach[] = [
-  {
-    id: "C1",
-    name: "Manikandan",
-    email: "manikandan@darklight.com",
-    phone: "+919876543210",
-    available_days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
-    available_time_slots: ["9 AM - 12 PM", "12 PM - 3 PM", "3 PM - 6 PM", "6 PM - 9 PM"],
-    current_students: 5,
-    rating: 4.8
-  }
-]
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as Lead
+    const secret = process.env.LEAD_WEBHOOK_SECRET
+    const providedSecret = request.headers.get('x-lead-webhook-secret')
+    if (!secret || providedSecret !== secret) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const body = await request.json() as LeadPayload
 
     if (!body.name || body.name.trim().length < 2) {
       return NextResponse.json(
@@ -41,23 +35,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!body.email || !EMAIL_REGEX.test(body.email)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email format' },
-        { status: 400 }
-      )
-    }
-
     if (!body.phone || !body.phone.startsWith('+')) {
       return NextResponse.json(
         { success: false, error: 'Phone must be in international format (e.g. +919876543210)' },
-        { status: 400 }
-      )
-    }
-
-    if (!body.source || !body.source.trim()) {
-      return NextResponse.json(
-        { success: false, error: 'Source is required' },
         { status: 400 }
       )
     }
@@ -76,37 +56,47 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const timestamp = new Date().toISOString()
-    const leadId = `LEAD_${Date.now()}`
+    const result = await validateAndCreateLead({
+      name: body.name,
+      email: body.email,
+      phone: body.phone,
+      source: body.source,
+      notes: body.notes,
+    })
 
-    const leadData: Lead = {
-      name: body.name.trim(),
-      email: body.email.trim().toLowerCase(),
-      phone: body.phone.trim(),
-      source: body.source.trim(),
-      available_days: body.available_days,
-      available_time: body.available_time.trim(),
-      notes: body.notes?.trim(),
-      leadId,
-      status: 'new',
-      timestamp,
+    if (!result.ok) {
+      return NextResponse.json(
+        { success: false, error: result.error },
+        { status: result.status }
+      )
     }
 
-    console.log('[LEAD RECEIVED]', { leadData, timestamp })
+    const { lead } = result
+    const timestamp = new Date().toISOString()
 
-    const bestCoach = findBestCoach(leadData, mockCoaches)
+    const bestCoach: Coach | null = findBestCoach(
+      { name: lead.name, email: lead.email, available_days: body.available_days, available_time: body.available_time },
+      getCoachPool()
+    )
 
     if (bestCoach) {
-      await sendWelcomeEmail(leadData.email, leadData.name)
-      await sendEmailToCoach(bestCoach, leadData)
-      console.log("[COACH ASSIGNED]", { leadId: leadData.leadId, coachId: bestCoach.id, coachName: bestCoach.name })
+      try {
+        await Promise.all([
+          sendWelcomeEmail(lead.email, lead.name),
+          sendWelcomeWhatsApp(lead.phone, lead.name),
+          sendEmailToCoach(bestCoach, lead),
+        ])
+      } catch (err) {
+        console.error('[LEAD NOTIFICATION ERROR]', err)
+      }
+      console.log('[COACH ASSIGNED]', { leadId: lead.id, coachId: bestCoach.id, coachName: bestCoach.name })
     } else {
-      console.log("[NO COACH AVAILABLE]", { leadId: leadData.leadId, available_days: leadData.available_days })
+      console.log('[NO COACH AVAILABLE]', { leadId: lead.id, available_days: body.available_days })
     }
 
     return NextResponse.json({
       success: true,
-      leadId,
+      leadId: lead.id,
       message: 'Lead received successfully',
       timestamp,
     })

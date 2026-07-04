@@ -32,13 +32,12 @@ export async function POST(req: NextRequest) {
     }
 
     const resolvedCurrency = currency ?? 'INR'
-    const amountInPaise = amount * 100
 
-    const invoice = createRazorpayInvoice(studentId, studentName, parentEmail, amountInPaise, resolvedCurrency)
+    const invoice = await createRazorpayInvoice(studentId, studentName, parentEmail, amount, resolvedCurrency, parentPhone)
     const { invoiceId, paymentLink, expiresAt } = invoice
 
-    sendPaymentLinkEmail(parentEmail, studentName, paymentLink, amount, expiresAt, coachName)
-    sendPaymentLinkWhatsApp(parentPhone, studentName, paymentLink, amount, expiresAt)
+    await sendPaymentLinkEmail(parentEmail, studentName, paymentLink, amount, expiresAt, coachName)
+    await sendPaymentLinkWhatsApp(parentPhone, studentName, paymentLink, amount, expiresAt)
     await ClickUpClient.updateStudentPaymentLink(studentId, paymentLink, invoiceId)
 
     console.log('[PAYMENT LINK GENERATED]', { studentId, invoiceId, paymentLink })

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { MailchimpClient } from '@/lib/mailchimp'
+import { GmailClient } from '@/lib/gmail'
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await MailchimpClient.sendEmail({
+    const result = await GmailClient.sendEmail({
       to: body.to,
       toName: body.toName,
       subject: body.subject,

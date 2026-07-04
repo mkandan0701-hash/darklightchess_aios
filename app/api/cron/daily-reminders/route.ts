@@ -50,10 +50,10 @@ export async function GET(request: NextRequest) {
     )
 
     try {
-      sendOverdueReminderEmail(student.email, student.name, payment.amountDue, daysOverdue)
+      await sendOverdueReminderEmail(student.email, student.name, payment.amountDue, daysOverdue)
       emailsSent++
 
-      sendOverdueReminderWhatsApp(student.phone, student.name, payment.amountDue, daysOverdue)
+      await sendOverdueReminderWhatsApp(student.phone, student.name, payment.amountDue, daysOverdue)
       whatsappSent++
 
       await ClickUpClient.markReminderSent(payment.id, { reminderSentAt: timestamp })

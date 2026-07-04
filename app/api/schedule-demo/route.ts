@@ -64,18 +64,19 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1. Create Google Meet event
-    const { meetLink, eventId } = createGoogleMeetLink(
+    const startDateTime = new Date(`${selectedDate}T${selectedTime}:00`).toISOString()
+    const { meetLink, eventId } = await createGoogleMeetLink(
       `Chess Demo Class - ${parentName}`,
-      { date: selectedDate, time: selectedTime },
+      startDateTime,
       30
     )
 
     // 2. Send confirmation emails
-    sendDemoConfirmationToParent(parentEmail, parentName, coachName, meetLink, selectedDate, selectedTime)
-    sendDemoConfirmationToCoach(coachEmail, coachName, parentName, parentPhone, meetLink, selectedDate, selectedTime)
+    await sendDemoConfirmationToParent(parentEmail, parentName, coachName, meetLink, selectedDate, selectedTime)
+    await sendDemoConfirmationToCoach(coachEmail, coachName, parentName, parentPhone, meetLink, selectedDate, selectedTime)
 
     // 3. Send WhatsApp to parent
-    sendDemoConfirmationWhatsApp(parentPhone, parentName, meetLink, selectedDate, selectedTime)
+    await sendDemoConfirmationWhatsApp(parentPhone, parentName, meetLink, selectedDate, selectedTime)
 
     // 4. Update ClickUp lead status
     await ClickUpClient.updateLeadStatus(leadId, 'Demo Scheduled', {

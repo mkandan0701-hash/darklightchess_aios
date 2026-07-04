@@ -1,45 +1,114 @@
-function randomMeetCode(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz'
-  const seg = (n: number) =>
-    Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-  return `${seg(3)}-${seg(4)}-${seg(3)}`
-}
+import { getAccessToken } from '@/lib/googleAuth'
 
-export interface MeetEvent {
+export interface MeetLinkResult {
   meetLink: string
   eventId: string
-  calendarLink: string
+  startTime: string
+  endTime: string
 }
 
-export function createGoogleMeetLink(
+export async function createGoogleMeetLink(
   title: string,
-  dateTime: { date: string; time: string },
-  duration: number
-): MeetEvent {
-  console.log(`[GOOGLE MEET] Creating event: "${title}" on ${dateTime.date} at ${dateTime.time} (${duration} min)`)
+  startDateTime: string,
+  durationMinutes: number
+): Promise<MeetLinkResult> {
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
+  if (!refreshToken) {
+    console.error('[GOOGLE MEET ERROR]', 'No refresh token')
+    throw new Error('GOOGLE_REFRESH_TOKEN not in .env.local')
+  }
 
-  const code = randomMeetCode()
-  const eventId = `evt_${Date.now()}`
-  const meetLink = `https://meet.google.com/${code}`
-  const calendarLink = `https://calendar.google.com/calendar/r/eventedit?text=${encodeURIComponent(title)}&dates=${dateTime.date.replace(/-/g, '')}T${dateTime.time.replace(':', '')}00`
+  const accessToken = await getAccessToken(refreshToken)
 
-  return { meetLink, eventId, calendarLink }
+  const start = new Date(startDateTime)
+  const end = new Date(start.getTime() + durationMinutes * 60000)
+
+  const event = {
+    summary: title,
+    description: 'Darklight Chess Academy Demo Class',
+    start: {
+      dateTime: startDateTime,
+      timeZone: 'UTC',
+    },
+    end: {
+      dateTime: end.toISOString(),
+      timeZone: 'UTC',
+    },
+    conferenceData: {
+      createRequest: {
+        requestId: 'req-' + Date.now(),
+        conferenceSolutionKey: {
+          type: 'hangoutsMeet',
+        },
+      },
+    },
+  }
+
+  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary'
+
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?conferenceDataVersion=1`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(event),
+      }
+    )
+
+    const createdEvent = await response.json()
+
+    if (!createdEvent.id) {
+      console.error('[GOOGLE MEET ERROR]', createdEvent)
+      throw new Error('Failed to create calendar event')
+    }
+
+    console.log('[GOOGLE MEET CREATED]', {
+      eventId: createdEvent.id,
+      meetLink: createdEvent.hangoutLink,
+      title,
+    })
+
+    return {
+      meetLink: createdEvent.hangoutLink,
+      eventId: createdEvent.id,
+      startTime: startDateTime,
+      endTime: end.toISOString(),
+    }
+  } catch (err) {
+    console.error('[GOOGLE MEET ERROR]', err)
+    throw err
+  }
 }
 
-export function formatMeetMessage(
-  parentName: string,
-  meetLink: string,
-  demoDate: string,
-  demoTime: string
-): string {
-  return `Hi ${parentName},
+export async function deleteGoogleMeetEvent(eventId: string): Promise<{ success: true }> {
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
+  if (!refreshToken) throw new Error('No refresh token')
 
-Your demo class is scheduled!
+  const accessToken = await getAccessToken(refreshToken)
+  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary'
 
-📅 Date: ${demoDate}
-🕐 Time: ${demoTime}
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${eventId}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    )
 
-📹 Join here: ${meetLink}
+    if (response.status !== 204) {
+      console.error('[GOOGLE MEET ERROR]', 'Failed to delete')
+      throw new Error('Failed to delete event')
+    }
 
-See you soon!`
+    console.log('[GOOGLE MEET DELETED]', { eventId })
+    return { success: true }
+  } catch (err) {
+    console.error('[GOOGLE MEET ERROR]', err)
+    throw err
+  }
 }

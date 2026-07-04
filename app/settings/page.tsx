@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 interface ApiStatus {
   clickup: boolean
   razorpay: boolean
-  mailchimp: boolean
+  gmail: boolean
   twilio: boolean
 }
 
@@ -25,12 +25,12 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   gstRate: '18',
 }
 
-const SERVICE_NAMES: (keyof ApiStatus)[] = ['clickup', 'razorpay', 'mailchimp', 'twilio']
+const SERVICE_NAMES: (keyof ApiStatus)[] = ['clickup', 'razorpay', 'gmail', 'twilio']
 
 const SERVICE_LABELS: Record<keyof ApiStatus, { label: string; description: string }> = {
   clickup: { label: 'ClickUp CRM', description: 'Student, lead & payment data' },
   razorpay: { label: 'Razorpay', description: 'Payment processing & invoices' },
-  mailchimp: { label: 'Mailchimp', description: 'Email notifications' },
+  gmail: { label: 'Gmail', description: 'Email notifications' },
   twilio: { label: 'Twilio', description: 'WhatsApp messaging' },
 }
 

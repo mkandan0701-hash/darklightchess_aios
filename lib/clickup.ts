@@ -9,6 +9,48 @@ function getHeaders(): Record<string, string> {
   }
 }
 
+const fieldIdCache = new Map<string, Record<string, string>>()
+
+// ClickUp's task create/update API requires custom_fields to be keyed by field id, not name.
+async function getFieldIds(listId: string): Promise<Record<string, string>> {
+  const cached = fieldIdCache.get(listId)
+  if (cached) return cached
+
+  const res = await fetch(`${BASE_URL}/list/${listId}/field`, { headers: getHeaders() })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ClickUp custom fields for list ${listId}: ${res.status}`)
+  }
+  const data = await res.json() as { fields: { id: string; name: string }[] }
+  const map = Object.fromEntries(data.fields.map((f) => [f.name, f.id]))
+  fieldIdCache.set(listId, map)
+  return map
+}
+
+// The Update Task endpoint (PUT /task/{id}) silently ignores a `custom_fields` body param -
+// ClickUp requires the separate "Set Custom Field Value" endpoint for that.
+async function setCustomFields(taskId: string, listId: string, fields: Record<string, string>): Promise<void> {
+  const fieldIds = await getFieldIds(listId)
+
+  await Promise.all(
+    Object.entries(fields).map(async ([name, value]) => {
+      const fieldId = fieldIds[name]
+      if (!fieldId) {
+        console.warn(`[CLICKUP] Unknown custom field "${name}" for list ${listId}; skipping`)
+        return
+      }
+      const res = await fetch(`${BASE_URL}/task/${taskId}/field/${fieldId}`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ value }),
+      })
+      if (!res.ok) {
+        const errText = await res.text()
+        console.error(`[CLICKUP] Failed to set field "${name}" on task ${taskId}: ${res.status} ${errText}`)
+      }
+    })
+  )
+}
+
 // --- Mock Data ---
 
 const MOCK_STUDENTS: Student[] = [
@@ -365,17 +407,15 @@ export class ClickUpClient {
     await fetch(`${BASE_URL}/task/${leadId}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify({
-        status,
-        custom_fields: demoDetails
-          ? [
-              { name: 'Demo Date', value: demoDetails.demoDate },
-              { name: 'Demo Time', value: demoDetails.demoTime },
-              { name: 'Meet Link', value: demoDetails.meetLink },
-            ]
-          : [],
-      }),
+      body: JSON.stringify({ status }),
     })
+    if (demoDetails) {
+      await setCustomFields(leadId, process.env.CLICKUP_LIST_LEADS!, {
+        'Demo Date': demoDetails.demoDate,
+        'Demo Time': demoDetails.demoTime,
+        'Meet Link': demoDetails.meetLink,
+      })
+    }
   }
 
   static async updateStudentPaymentLink(
@@ -387,15 +427,9 @@ export class ClickUpClient {
       console.log(`[CLICKUP MOCK] Would update student ${studentId} with payment link`, { paymentLink, invoiceId })
       return
     }
-    await fetch(`${BASE_URL}/task/${studentId}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        custom_fields: [
-          { name: 'Payment Link', value: paymentLink },
-          { name: 'Invoice ID', value: invoiceId },
-        ],
-      }),
+    await setCustomFields(studentId, process.env.CLICKUP_LIST_STUDENTS!, {
+      'Payment Link': paymentLink,
+      'Invoice ID': invoiceId,
     })
   }
 
@@ -410,14 +444,37 @@ export class ClickUpClient {
     await fetch(`${BASE_URL}/task/${studentId}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify({
-        status: data.status,
-        custom_fields: [
-          { name: 'Razorpay Payment ID', value: data.paymentId },
-          { name: 'Paid Date', value: data.paidAt },
-          { name: 'Enrolled Date', value: data.enrollmentDate },
-        ],
-      }),
+      body: JSON.stringify({ status: data.status }),
+    })
+    await setCustomFields(studentId, process.env.CLICKUP_LIST_STUDENTS!, {
+      'Payment Status': 'paid',
+      'Razorpay Payment ID': data.paymentId,
+      'Paid Date': data.paidAt,
+      'Enrolled Date': data.enrollmentDate,
+    })
+  }
+
+  static async markStudentPaidManually(
+    studentId: string,
+    data: { paidAt: string }
+  ): Promise<void> {
+    if (!this.isConfigured()) {
+      console.log(`[CLICKUP MOCK] markStudentPaidManually`, { studentId, ...data })
+      return
+    }
+    await setCustomFields(studentId, process.env.CLICKUP_LIST_STUDENTS!, {
+      'Payment Status': 'paid',
+      'Paid Date': data.paidAt,
+    })
+  }
+
+  static async markStudentUnpaid(studentId: string): Promise<void> {
+    if (!this.isConfigured()) {
+      console.log(`[CLICKUP MOCK] markStudentUnpaid`, { studentId })
+      return
+    }
+    await setCustomFields(studentId, process.env.CLICKUP_LIST_STUDENTS!, {
+      'Payment Status': 'pending',
     })
   }
 
@@ -429,13 +486,125 @@ export class ClickUpClient {
       console.log(`[CLICKUP MOCK] markReminderSent`, { paymentId, ...data })
       return
     }
-    await fetch(`${BASE_URL}/task/${paymentId}`, {
-      method: 'PUT',
+    await setCustomFields(paymentId, process.env.CLICKUP_LIST_PAYMENTS!, {
+      'Reminder Sent At': data.reminderSentAt,
+    })
+  }
+
+  static async createStudent(data: {
+    name: string
+    email: string
+    phone: string
+    classesPerWeek: number
+    duration: string
+    monthlyFee: number
+    grade?: string
+  }): Promise<Student> {
+    const enrolledDate = new Date().toISOString().split('T')[0]
+
+    if (!this.isConfigured()) {
+      const student: Student = {
+        id: `st-mock-${Date.now()}`,
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        classesPerWeek: data.classesPerWeek,
+        duration: data.duration,
+        monthlyFee: data.monthlyFee,
+        paymentStatus: 'pending',
+        enrolledDate,
+        grade: data.grade,
+      }
+      MOCK_STUDENTS.push(student)
+      console.log(`[CLICKUP MOCK] Created student`, student)
+      return student
+    }
+
+    const listId = process.env.CLICKUP_LIST_STUDENTS!
+    const fieldIds = await getFieldIds(listId)
+    const field = (name: string, value: string) =>
+      fieldIds[name] ? [{ id: fieldIds[name], value }] : []
+
+    const res = await fetch(`${BASE_URL}/list/${listId}/task`, {
+      method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({
-        custom_fields: [{ name: 'Reminder Sent At', value: data.reminderSentAt }],
+        name: data.name,
+        custom_fields: [
+          ...field('Email', data.email),
+          ...field('Phone', data.phone),
+          ...field('Classes Per Week', String(data.classesPerWeek)),
+          ...field('Duration', data.duration),
+          ...field('Monthly Fee', String(data.monthlyFee)),
+          ...field('Payment Status', 'pending'),
+          ...field('Enrolled Date', enrolledDate),
+          ...field('Grade', data.grade ?? ''),
+        ],
       }),
     })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`ClickUp create task failed: ${res.status} ${errText}`)
+    }
+
+    const task = await res.json() as Record<string, unknown>
+    return mapTaskToStudent(task)
+  }
+
+  static async createLead(data: {
+    name: string
+    email: string
+    phone: string
+    source: string
+    notes?: string
+  }): Promise<Lead> {
+    const dateReceived = new Date().toISOString().split('T')[0]
+
+    if (!this.isConfigured()) {
+      const lead: Lead = {
+        id: `ld-mock-${Date.now()}`,
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        source: data.source as Lead['source'],
+        status: 'new',
+        dateReceived,
+        notes: data.notes,
+      }
+      MOCK_LEADS.push(lead)
+      console.log(`[CLICKUP MOCK] Created lead`, lead)
+      return lead
+    }
+
+    const listId = process.env.CLICKUP_LIST_LEADS!
+    const fieldIds = await getFieldIds(listId)
+    const field = (name: string, value: string) =>
+      fieldIds[name] ? [{ id: fieldIds[name], value }] : []
+
+    const res = await fetch(`${BASE_URL}/list/${listId}/task`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        name: data.name,
+        custom_fields: [
+          ...field('Email', data.email),
+          ...field('Phone', data.phone),
+          ...field('Source', data.source),
+          ...field('Status', 'new'),
+          ...field('Date Received', dateReceived),
+          ...field('Notes', data.notes ?? ''),
+        ],
+      }),
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`ClickUp create task failed: ${res.status} ${errText}`)
+    }
+
+    const task = await res.json() as Record<string, unknown>
+    return mapTaskToLead(task)
   }
 
   static async getStats(): Promise<DashboardStats> {

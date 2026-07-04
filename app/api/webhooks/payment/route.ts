@@ -92,9 +92,9 @@ export async function POST(request: NextRequest) {
       coachName,
     })
 
-    sendReceiptEmail(parentEmail, studentName, receiptText, coachName)
+    await sendReceiptEmail(parentEmail, studentName, receiptText, coachName)
 
-    sendReceiptWhatsApp(parentPhone, studentName, amount, paymentId)
+    await sendReceiptWhatsApp(parentPhone, studentName, amount, paymentId)
 
     const enrollmentDate = new Date().toISOString()
     await ClickUpClient.enrollStudent(studentId, {

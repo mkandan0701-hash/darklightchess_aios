@@ -6,7 +6,7 @@ export async function GET() {
     data: {
       clickup: !!(process.env.CLICKUP_API_KEY && process.env.CLICKUP_LIST_STUDENTS),
       razorpay: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
-      mailchimp: !!(process.env.MAILCHIMP_API_KEY && process.env.MAILCHIMP_SERVER_PREFIX),
+      gmail: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD),
       twilio: !!(
         process.env.TWILIO_ACCOUNT_SID &&
         process.env.TWILIO_AUTH_TOKEN &&
