@@ -491,6 +491,16 @@ export class ClickUpClient {
     })
   }
 
+  static async markPaymentOverdue(paymentId: string): Promise<void> {
+    if (!this.isConfigured()) {
+      console.log(`[CLICKUP MOCK] markPaymentOverdue`, { paymentId })
+      return
+    }
+    await setCustomFields(paymentId, process.env.CLICKUP_LIST_PAYMENTS!, {
+      'Payment Status': 'overdue',
+    })
+  }
+
   static async createStudent(data: {
     name: string
     email: string

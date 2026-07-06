@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { ClickUpClient } from '@/lib/clickup'
 import { sendOverdueReminderEmail } from '@/lib/emailSender'
-import { sendOverdueReminderWhatsApp } from '@/lib/whatsappSender'
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -29,10 +28,38 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  const today = new Date()
+  const currentYM = today.getUTCFullYear() * 12 + today.getUTCMonth()
+  const dayOfMonth = today.getUTCDate()
+
+  let newlyMarkedOverdue = 0
+
+  if (dayOfMonth >= 8) {
+    for (const payment of payments) {
+      if (payment.status !== 'pending' || !payment.dueDate) continue
+
+      const due = new Date(payment.dueDate)
+      if (isNaN(due.getTime())) {
+        console.warn(`[CRON WARN] Unparseable dueDate for payment ${payment.id}: "${payment.dueDate}"`)
+        continue
+      }
+      const dueYM = due.getUTCFullYear() * 12 + due.getUTCMonth()
+
+      if (dueYM <= currentYM) {
+        try {
+          await ClickUpClient.markPaymentOverdue(payment.id)
+          payment.status = 'overdue'
+          newlyMarkedOverdue++
+        } catch (err) {
+          console.error(`[CRON ERROR] Failed to mark payment ${payment.id} overdue:`, err)
+        }
+      }
+    }
+  }
+
   const overduePayments = payments.filter((p) => p.status === 'overdue')
 
   let emailsSent = 0
-  let whatsappSent = 0
   let successCount = 0
   let failureCount = 0
 
@@ -53,9 +80,6 @@ export async function GET(request: NextRequest) {
       await sendOverdueReminderEmail(student.email, student.name, payment.amountDue, daysOverdue)
       emailsSent++
 
-      await sendOverdueReminderWhatsApp(student.phone, student.name, payment.amountDue, daysOverdue)
-      whatsappSent++
-
       await ClickUpClient.markReminderSent(payment.id, { reminderSentAt: timestamp })
 
       console.log(`[REMINDER SENT] { studentId: '${student.id}', studentName: '${student.name}' }`)
@@ -70,14 +94,14 @@ export async function GET(request: NextRequest) {
   const duration = Date.now() - startTime
 
   console.log(
-    `[CRON COMPLETED] { totalProcessed: ${totalProcessed}, emailsSent: ${emailsSent}, whatsappSent: ${whatsappSent}, duration: ${duration}ms }`
+    `[CRON COMPLETED] { totalProcessed: ${totalProcessed}, newlyMarkedOverdue: ${newlyMarkedOverdue}, emailsSent: ${emailsSent}, duration: ${duration}ms }`
   )
 
   return NextResponse.json({
     success: true,
     remindersProcessed: totalProcessed,
+    newlyMarkedOverdue,
     emailsSent,
-    whatsappSent,
     successCount,
     failureCount,
     timestamp,
