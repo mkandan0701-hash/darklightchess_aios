@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 import { sendOverdueReminderEmail } from '@/lib/emailSender'
 
 export async function GET(request: NextRequest) {
@@ -17,11 +17,11 @@ export async function GET(request: NextRequest) {
   let students
   try {
     ;[payments, students] = await Promise.all([
-      ClickUpClient.getPayments(),
-      ClickUpClient.getStudents(),
+      AirtableClient.getPayments(),
+      AirtableClient.getStudents(),
     ])
   } catch (err) {
-    console.error('[CRON ERROR] ClickUp query failed:', err)
+    console.error('[CRON ERROR] Airtable query failed:', err)
     return NextResponse.json(
       { success: false, error: 'Failed to fetch overdue students' },
       { status: 500 }
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
       if (dueYM <= currentYM) {
         try {
-          await ClickUpClient.markPaymentOverdue(payment.id)
+          await AirtableClient.markPaymentOverdue(payment.id)
           payment.status = 'overdue'
           newlyMarkedOverdue++
         } catch (err) {
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
       await sendOverdueReminderEmail(student.email, student.name, payment.amountDue, daysOverdue)
       emailsSent++
 
-      await ClickUpClient.markReminderSent(payment.id, { reminderSentAt: timestamp })
+      await AirtableClient.markReminderSent(payment.id, { reminderSentAt: timestamp })
 
       console.log(`[REMINDER SENT] { studentId: '${student.id}', studentName: '${student.name}' }`)
       successCount++

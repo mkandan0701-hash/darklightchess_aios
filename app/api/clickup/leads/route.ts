@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 import { validateAndCreateLead } from '@/lib/leadService'
 
 export async function GET() {
   try {
-    const leads = await ClickUpClient.getLeads()
+    const leads = await AirtableClient.getLeads()
     return NextResponse.json({ success: true, data: leads })
   } catch {
     return NextResponse.json(

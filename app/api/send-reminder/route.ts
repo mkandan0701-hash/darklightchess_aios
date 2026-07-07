@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 import { sendOverdueReminderEmail } from '@/lib/emailSender'
 import { sendOverdueReminderWhatsApp } from '@/lib/whatsappSender'
 
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       await sendOverdueReminderWhatsApp(parentPhone, studentName, amountDue, daysOverdue)
     }
 
-    await ClickUpClient.markReminderSent(paymentId, { reminderSentAt: new Date().toISOString() })
+    await AirtableClient.markReminderSent(paymentId, { reminderSentAt: new Date().toISOString() })
 
     console.log('[REMINDER SENT MANUAL]', { paymentId, studentName })
 

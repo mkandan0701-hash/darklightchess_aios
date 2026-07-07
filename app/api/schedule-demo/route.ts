@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createGoogleMeetLink } from '@/lib/googleMeet'
 import { sendDemoConfirmationToParent, sendDemoConfirmationToCoach } from '@/lib/emailSender'
 import { sendDemoConfirmationWhatsApp } from '@/lib/whatsappSender'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -78,8 +78,8 @@ export async function POST(req: NextRequest) {
     // 3. Send WhatsApp to parent
     await sendDemoConfirmationWhatsApp(parentPhone, parentName, meetLink, selectedDate, selectedTime)
 
-    // 4. Update ClickUp lead status
-    await ClickUpClient.updateLeadStatus(leadId, 'Demo Scheduled', {
+    // 4. Update lead status
+    await AirtableClient.updateLeadStatus(leadId, 'Demo Scheduled', {
       demoDate: selectedDate,
       demoTime: selectedTime,
       meetLink,

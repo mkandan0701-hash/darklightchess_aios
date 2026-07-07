@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRazorpayInvoice } from '@/services/razorpay'
 import { sendPaymentLinkEmail } from '@/lib/emailSender'
 import { sendPaymentLinkWhatsApp } from '@/lib/whatsappSender'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     await sendPaymentLinkEmail(parentEmail, studentName, paymentLink, amount, expiresAt, coachName)
     await sendPaymentLinkWhatsApp(parentPhone, studentName, paymentLink, amount, expiresAt)
-    await ClickUpClient.updateStudentPaymentLink(studentId, paymentLink, invoiceId)
+    await AirtableClient.updateStudentPaymentLink(studentId, paymentLink, invoiceId)
 
     console.log('[PAYMENT LINK GENERATED]', { studentId, invoiceId, paymentLink })
 

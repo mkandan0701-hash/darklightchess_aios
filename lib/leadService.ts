@@ -1,4 +1,4 @@
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 import type { Lead } from '@/lib/types'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -24,7 +24,7 @@ export async function validateAndCreateLead(body: Record<string, unknown>): Prom
   }
 
   try {
-    const lead = await ClickUpClient.createLead({
+    const lead = await AirtableClient.createLead({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),

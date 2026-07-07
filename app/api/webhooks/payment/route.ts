@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { formatReceiptEmail } from '@/lib/receiptGenerator'
 import { sendReceiptEmail } from '@/lib/emailSender'
 import { sendReceiptWhatsApp } from '@/lib/whatsappSender'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 import { RazorpayClient } from '@/lib/razorpay'
 
 interface RazorpayPaymentNotes {
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     await sendReceiptWhatsApp(parentPhone, studentName, amount, paymentId)
 
     const enrollmentDate = new Date().toISOString()
-    await ClickUpClient.enrollStudent(studentId, {
+    await AirtableClient.enrollStudent(studentId, {
       status: 'Active',
       paymentId,
       paidAt: paidAt.toISOString(),

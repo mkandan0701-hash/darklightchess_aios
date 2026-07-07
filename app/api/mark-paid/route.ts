@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { formatReceiptEmail } from '@/lib/receiptGenerator'
 import { sendReceiptEmail } from '@/lib/emailSender'
 import { sendReceiptWhatsApp } from '@/lib/whatsappSender'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     }
 
     const paidAt = new Date()
-    await ClickUpClient.markStudentPaidManually(studentId, { paidAt: paidAt.toISOString() })
+    await AirtableClient.markStudentPaidManually(studentId, { paidAt: paidAt.toISOString() })
 
     let receiptSent = false
     if (parentEmail && typeof amount === 'number') {

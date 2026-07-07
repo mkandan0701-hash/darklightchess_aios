@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required field: studentId' }, { status: 400 })
     }
 
-    await ClickUpClient.markStudentUnpaid(studentId)
+    await AirtableClient.markStudentUnpaid(studentId)
 
     console.log('[MARK UNPAID]', { studentId })
 

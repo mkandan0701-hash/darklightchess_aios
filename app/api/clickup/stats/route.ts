@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 
 export async function GET() {
   try {
-    const stats = await ClickUpClient.getStats()
+    const stats = await AirtableClient.getStats()
     return NextResponse.json({ success: true, data: stats })
   } catch {
     return NextResponse.json(

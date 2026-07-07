@@ -1,3 +1,4 @@
+// DEPRECATED: Replaced by lib/airtableClient.ts
 import type { Student, Lead, Payment, DashboardStats } from './types'
 
 const BASE_URL = 'https://api.clickup.com/api/v2'
@@ -369,7 +370,7 @@ export class ClickUpClient {
     if (!this.isConfigured()) return MOCK_STUDENTS
     const res = await fetch(
       `${BASE_URL}/list/${process.env.CLICKUP_LIST_STUDENTS}/task?archived=false`,
-      { headers: getHeaders() }
+      { headers: getHeaders(), cache: 'no-store' }
     )
     const data = await res.json() as { tasks: Record<string, unknown>[] }
     return data.tasks.map(mapTaskToStudent)
@@ -379,7 +380,7 @@ export class ClickUpClient {
     if (!this.isConfigured()) return MOCK_LEADS
     const res = await fetch(
       `${BASE_URL}/list/${process.env.CLICKUP_LIST_LEADS}/task?archived=false`,
-      { headers: getHeaders() }
+      { headers: getHeaders(), cache: 'no-store' }
     )
     const data = await res.json() as { tasks: Record<string, unknown>[] }
     return data.tasks.map(mapTaskToLead)
@@ -389,7 +390,7 @@ export class ClickUpClient {
     if (!this.isConfigured()) return MOCK_PAYMENTS
     const res = await fetch(
       `${BASE_URL}/list/${process.env.CLICKUP_LIST_PAYMENTS}/task?archived=false`,
-      { headers: getHeaders() }
+      { headers: getHeaders(), cache: 'no-store' }
     )
     const data = await res.json() as { tasks: Record<string, unknown>[] }
     return data.tasks.map(mapTaskToPayment)

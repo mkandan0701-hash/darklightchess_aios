@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ClickUpClient } from '@/lib/clickup'
+import { AirtableClient } from '@/lib/airtableClient'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function GET() {
   try {
-    const students = await ClickUpClient.getStudents()
+    const students = await AirtableClient.getStudents()
     return NextResponse.json({ success: true, data: students })
   } catch {
     return NextResponse.json(
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const student = await ClickUpClient.createStudent({
+    const student = await AirtableClient.createStudent({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),

@@ -4,7 +4,7 @@ export async function GET() {
   return NextResponse.json({
     success: true,
     data: {
-      clickup: !!(process.env.CLICKUP_API_KEY && process.env.CLICKUP_LIST_STUDENTS),
+      airtable: !!(process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID),
       razorpay: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
       gmail: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD),
       twilio: !!(
