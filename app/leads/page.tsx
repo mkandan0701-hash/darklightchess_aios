@@ -21,6 +21,13 @@ const EMPTY_BOOKING_FORM = {
   selectedTime: '',
 }
 
+const EMPTY_CONVERT_FORM = {
+  classesPerWeek: '3',
+  duration: '45 min',
+  monthlyFee: '',
+  grade: '',
+}
+
 type LeadStatus = Lead['status'] | 'all'
 type LeadSource = Lead['source'] | 'all'
 
@@ -64,6 +71,10 @@ export default function LeadsPage() {
   const [bookingForm, setBookingForm] = useState(EMPTY_BOOKING_FORM)
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
   const [bookingError, setBookingError] = useState('')
+  const [convertLead, setConvertLead] = useState<Lead | null>(null)
+  const [convertForm, setConvertForm] = useState(EMPTY_CONVERT_FORM)
+  const [convertSubmitting, setConvertSubmitting] = useState(false)
+  const [convertError, setConvertError] = useState('')
 
   useEffect(() => {
     fetch('/api/clickup/leads')
@@ -137,6 +148,43 @@ export default function LeadsPage() {
     }
   }
 
+  const handleConvert = async () => {
+    if (!convertLead) return
+    setConvertError('')
+    setConvertSubmitting(true)
+    try {
+      const res = await fetch('/api/leads/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leadId: convertLead.id,
+          name: convertLead.name,
+          email: convertLead.email,
+          phone: convertLead.phone,
+          classesPerWeek: convertForm.classesPerWeek,
+          duration: convertForm.duration,
+          monthlyFee: convertForm.monthlyFee,
+          grade: convertForm.grade,
+        }),
+      })
+      const result = await res.json() as { success: boolean; error?: string }
+      if (!result.success) {
+        setConvertError(result.error ?? 'Failed to convert lead')
+        return
+      }
+      setLeads((prev) =>
+        prev.map((l) => (l.id === convertLead.id ? { ...l, status: 'converted' } : l))
+      )
+      setConvertLead(null)
+      setConvertForm(EMPTY_CONVERT_FORM)
+      alert(`${convertLead.name} added to Students. Send the fee link from the Students page.`)
+    } catch {
+      setConvertError('Failed to convert lead. Please try again.')
+    } finally {
+      setConvertSubmitting(false)
+    }
+  }
+
   const filtered = useMemo(() => {
     return leads.filter((l) => {
       const matchesStatus = filterStatus === 'all' || l.status === filterStatus
@@ -203,7 +251,9 @@ export default function LeadsPage() {
               className="btn-sm bg-success text-white hover:opacity-80"
               onClick={(e) => {
                 e.stopPropagation()
-                alert(`${row.name} marked as converted`)
+                setConvertError('')
+                setConvertForm(EMPTY_CONVERT_FORM)
+                setConvertLead(row)
               }}
             >
               Convert
@@ -412,6 +462,87 @@ export default function LeadsPage() {
               }`}
             >
               {bookingSubmitting ? 'Scheduling...' : 'Confirm & Send Meet Link'}
+            </button>
+          </div>
+        )}
+      </Modal>
+
+      {/* Convert to Student Modal */}
+      <Modal
+        isOpen={!!convertLead}
+        onClose={() => {
+          setConvertLead(null)
+          setConvertForm(EMPTY_CONVERT_FORM)
+          setConvertError('')
+        }}
+        title="Convert to Student"
+      >
+        {convertLead && (
+          <div className="space-y-4">
+            {convertError && (
+              <p className="text-sm text-error bg-red-50 border border-red-200 rounded-lg px-3 py-2">{convertError}</p>
+            )}
+
+            <div className="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 space-y-1">
+              <p><span className="font-semibold">Name:</span> {convertLead.name}</p>
+              <p><span className="font-semibold">Email:</span> {convertLead.email}</p>
+              <p><span className="font-semibold">Phone:</span> {convertLead.phone}</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Classes per Week</label>
+              <input
+                type="number"
+                min="1"
+                value={convertForm.classesPerWeek}
+                onChange={(e) => setConvertForm({ ...convertForm, classesPerWeek: e.target.value })}
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Class Duration</label>
+              <input
+                type="text"
+                value={convertForm.duration}
+                onChange={(e) => setConvertForm({ ...convertForm, duration: e.target.value })}
+                className="input-field"
+                placeholder="45 min"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Monthly Fee (₹)</label>
+              <input
+                type="number"
+                min="1"
+                value={convertForm.monthlyFee}
+                onChange={(e) => setConvertForm({ ...convertForm, monthlyFee: e.target.value })}
+                className="input-field"
+                placeholder="5000"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Grade (optional)</label>
+              <input
+                type="text"
+                value={convertForm.grade}
+                onChange={(e) => setConvertForm({ ...convertForm, grade: e.target.value })}
+                className="input-field"
+              />
+            </div>
+
+            <button
+              onClick={handleConvert}
+              disabled={convertSubmitting || !convertForm.classesPerWeek || !convertForm.monthlyFee}
+              className={`btn-primary w-full justify-center ${
+                convertSubmitting || !convertForm.classesPerWeek || !convertForm.monthlyFee
+                  ? 'opacity-60 cursor-not-allowed'
+                  : ''
+              }`}
+            >
+              {convertSubmitting ? 'Converting...' : 'Convert & Add to Students'}
             </button>
           </div>
         )}

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import type { Student } from '@/lib/types'
-import { formatDate } from '@/lib/utils'
 
 type Tab = 'email' | 'whatsapp'
 
@@ -66,13 +65,6 @@ const WHATSAPP_TEMPLATES: Record<string, string> = {
   course_update: 'Hi! There\'s an important update about your child\'s chess schedule. Please check your email or reply here for details.',
   congratulations: 'Congratulations! 🏆 Your child performed brilliantly at Darklight Chess Academy. We\'re so proud! Keep it up!',
 }
-
-const MOCK_HISTORY = [
-  { id: 'h1', name: 'Arjun Sharma', type: 'Email', template: 'Payment Reminder', time: '2026-06-18', status: 'Delivered' },
-  { id: 'h2', name: 'Priya Nair', type: 'WhatsApp', template: 'Payment Reminder', time: '2026-06-17', status: 'Read' },
-  { id: 'h3', name: 'All Students', type: 'Email', template: 'Course Update', time: '2026-06-15', status: 'Delivered' },
-  { id: 'h4', name: 'Sneha Krishnan', type: 'WhatsApp', template: 'Welcome', time: '2026-06-10', status: 'Delivered' },
-]
 
 export default function CommunicationsPage() {
   const [tab, setTab] = useState<Tab>('email')
@@ -235,17 +227,11 @@ export default function CommunicationsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {MOCK_HISTORY.map((h) => (
-                  <tr key={h.id} className="hover:bg-gray-50">
-                    <td className="py-2 px-2 font-medium">{h.name}</td>
-                    <td className="py-2 px-2 text-gray-500">{h.type}</td>
-                    <td className="py-2 px-2 text-gray-500">{h.template}</td>
-                    <td className="py-2 px-2 text-gray-500">{formatDate(h.time)}</td>
-                    <td className="py-2 px-2">
-                      <span className="text-xs text-success font-medium">{h.status}</span>
-                    </td>
-                  </tr>
-                ))}
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-gray-400">
+                    No messages sent yet.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

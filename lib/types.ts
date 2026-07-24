@@ -43,7 +43,7 @@ export interface DashboardStats {
   monthlyRevenue: number
   overduePayments: number
   leadsThisMonth: number
-  studentsChange: number
+  studentsChange?: number
 }
 
 export interface ActivityItem {

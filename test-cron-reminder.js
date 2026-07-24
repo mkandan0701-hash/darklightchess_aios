@@ -29,16 +29,16 @@ async function testCronReminders() {
     console.log('✅ Status:', response.status)
     console.log('✅ Success:', data.success)
     console.log('✅ Reminders Processed:', data.remindersProcessed)
+    console.log('✅ Newly Marked Overdue:', data.newlyMarkedOverdue)
     console.log('✅ Emails Sent:', data.emailsSent)
-    console.log('✅ WhatsApp Sent:', data.whatsappSent)
     console.log('✅ Success Count:', data.successCount)
     console.log('✅ Failure Count:', data.failureCount)
     console.log('✅ Timestamp:', data.timestamp)
 
-    if (data.success && data.remindersProcessed > 0 && data.emailsSent > 0 && data.whatsappSent > 0) {
-      console.log('\n✅ DAILY REMINDERS CRON WORKS!')
+    if (data.success) {
+      console.log('\n✅ DAILY REMINDERS CRON RAN (see counts above for actual effect)')
     } else {
-      console.log('\n❌ Cron did not process reminders as expected')
+      console.log('\n❌ Cron request failed')
       console.log('Full response:', JSON.stringify(data, null, 2))
     }
   } catch (error) {

@@ -57,80 +57,6 @@ async function createRecord(table: string, fields: Record<string, unknown>): Pro
   return (await res.json()) as AirtableRecord
 }
 
-// --- Mock Data (used when Airtable env vars are not configured, e.g. local dev/preview) ---
-
-const MOCK_STUDENTS: Student[] = [
-  {
-    id: 'st-001',
-    name: 'Arjun Sharma',
-    email: 'arjun.sharma@gmail.com',
-    phone: '+919876543210',
-    classesPerWeek: 3,
-    duration: '45 min',
-    monthlyFee: 5000,
-    paymentStatus: 'paid',
-    enrolledDate: '2026-01-15',
-    grade: 'U12',
-  },
-  {
-    id: 'st-002',
-    name: 'Priya Nair',
-    email: 'priya.nair@gmail.com',
-    phone: '+919876543211',
-    classesPerWeek: 2,
-    duration: '60 min',
-    monthlyFee: 4000,
-    paymentStatus: 'pending',
-    enrolledDate: '2026-02-10',
-    grade: 'U14',
-  },
-]
-
-const MOCK_LEADS: Lead[] = [
-  {
-    id: 'ld-001',
-    name: 'Vijay Menon',
-    email: 'vijay.m@gmail.com',
-    phone: '+919811223344',
-    source: 'instagram',
-    status: 'new',
-    dateReceived: '2026-06-18',
-  },
-  {
-    id: 'ld-002',
-    name: 'Anita Desai',
-    email: 'anita.d@gmail.com',
-    phone: '+919811223345',
-    source: 'referral',
-    status: 'contacted',
-    dateReceived: '2026-06-15',
-    notes: 'Referred by Arjun Sharma',
-  },
-]
-
-const MOCK_PAYMENTS: Payment[] = [
-  {
-    id: 'pay-001',
-    studentId: 'st-001',
-    studentName: 'Arjun Sharma',
-    amountDue: 5000,
-    amountPaid: 5000,
-    dueDate: '2026-06-01',
-    paidDate: '2026-06-02',
-    status: 'paid',
-    razorpayPaymentId: 'pay_QxR1234567',
-  },
-  {
-    id: 'pay-002',
-    studentId: 'st-002',
-    studentName: 'Priya Nair',
-    amountDue: 4000,
-    amountPaid: 0,
-    dueDate: '2026-06-01',
-    status: 'pending',
-  },
-]
-
 // --- Airtable record mappers ---
 // Base schema (Students/Leads/Payments tables) uses snake_case field names that predate
 // this client; classesPerWeek/duration/grade/paymentLink/invoiceId on Students, studentId/
@@ -191,10 +117,9 @@ export class AirtableClient {
 
   private static async list<T>(
     table: string,
-    mapper: (r: AirtableRecord) => T,
-    mock: T[]
+    mapper: (r: AirtableRecord) => T
   ): Promise<T[]> {
-    if (!this.isConfigured()) return mock
+    if (!this.isConfigured()) return []
 
     const res = await fetch(tableUrl(table), { headers: getHeaders(), cache: 'no-store' })
 
@@ -212,15 +137,15 @@ export class AirtableClient {
   }
 
   static async getStudents(): Promise<Student[]> {
-    return this.list(TABLES.students, mapRecordToStudent, MOCK_STUDENTS)
+    return this.list(TABLES.students, mapRecordToStudent)
   }
 
   static async getLeads(): Promise<Lead[]> {
-    return this.list(TABLES.leads, mapRecordToLead, MOCK_LEADS)
+    return this.list(TABLES.leads, mapRecordToLead)
   }
 
   static async getPayments(): Promise<Payment[]> {
-    return this.list(TABLES.payments, mapRecordToPayment, MOCK_PAYMENTS)
+    return this.list(TABLES.payments, mapRecordToPayment)
   }
 
   static async updateLeadStatus(
@@ -333,7 +258,6 @@ export class AirtableClient {
         enrolledDate,
         grade: data.grade,
       }
-      MOCK_STUDENTS.push(student)
       console.log(`[AIRTABLE MOCK] Created student`, student)
       return student
     }
@@ -373,7 +297,6 @@ export class AirtableClient {
         dateReceived,
         notes: data.notes,
       }
-      MOCK_LEADS.push(lead)
       console.log(`[AIRTABLE MOCK] Created lead`, lead)
       return lead
     }
@@ -418,7 +341,6 @@ export class AirtableClient {
       monthlyRevenue,
       overduePayments: payments.filter((p) => p.status === 'overdue').length,
       leadsThisMonth,
-      studentsChange: 2,
     }
   }
 }
