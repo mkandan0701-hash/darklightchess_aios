@@ -248,6 +248,7 @@ still works in an environment without secrets.)
 | `lib/auth/withAuth.ts` | Route wrapper. Injects `{ session, scope, db }`. |
 | `lib/branches.ts` | Branch ids, display names, `isValidBranchId` whitelist. |
 | `app/(dashboard)/layout.tsx` | Verifies session server-side, injects `SessionProvider`. |
+| `app/(dashboard)/analytics/layout.tsx`, `.../settings/layout.tsx` | Server-side `role === 'superadmin'` gate. The Sidebar hiding these links is UX only — these layouts are what actually stop a branch admin from loading the page by URL. |
 | `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
 | `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
 
