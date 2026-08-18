@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { GmailClient } from '@/lib/gmail'
+import { withAuth } from '@/lib/auth/withAuth'
 
-export async function POST(request: NextRequest) {
+// NOTE: `to` is a free-form address with no Airtable record to scope it against, so any
+// signed-in branch admin can currently email an arbitrary address. Flagged in claude.md as a
+// residual risk — a follow-up should require the recipient to come from the caller's branch.
+export const POST = withAuth(async (request) => {
   try {
     const body = await request.json() as {
       to: string
@@ -31,4 +35,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

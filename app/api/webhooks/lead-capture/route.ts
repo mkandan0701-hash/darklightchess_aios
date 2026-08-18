@@ -4,6 +4,8 @@ import { getCoachPool } from '@/lib/coaches'
 import { sendWelcomeEmail, sendEmailToCoach } from '@/lib/emailSender'
 import { sendWelcomeWhatsApp } from '@/lib/whatsappSender'
 import { validateAndCreateLead } from '@/lib/leadService'
+import { AirtableClient } from '@/lib/airtableClient'
+import { branchForWebhookSecret } from '@/lib/auth/webhookSecrets'
 
 interface LeadPayload {
   name: string
@@ -17,9 +19,10 @@ interface LeadPayload {
 
 export async function POST(request: NextRequest) {
   try {
-    const secret = process.env.LEAD_WEBHOOK_SECRET
-    const providedSecret = request.headers.get('x-lead-webhook-secret')
-    if (!secret || providedSecret !== secret) {
+    // The secret IS the branch claim. A `branch` field on the payload itself is never
+    // trusted — otherwise any caller holding one branch's secret could write into another.
+    const branch = branchForWebhookSecret(request.headers.get('x-lead-webhook-secret'))
+    if (!branch) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -56,13 +59,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await validateAndCreateLead({
-      name: body.name,
-      email: body.email,
-      phone: body.phone,
-      source: body.source,
-      notes: body.notes,
-    })
+    const result = await validateAndCreateLead(
+      AirtableClient.system(),
+      {
+        name: body.name,
+        email: body.email,
+        phone: body.phone,
+        source: body.source,
+        notes: body.notes,
+      },
+      branch
+    )
 
     if (!result.ok) {
       return NextResponse.json(

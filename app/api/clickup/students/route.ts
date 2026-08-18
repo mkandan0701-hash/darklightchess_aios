@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { AirtableClient } from '@/lib/airtableClient'
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth/withAuth'
+import { branchForNewRecord } from '@/lib/auth/rbac'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export async function GET() {
+export const GET = withAuth(async (_request, { db }) => {
   try {
-    const students = await AirtableClient.getStudents()
+    const students = await db.getStudents()
     return NextResponse.json({ success: true, data: students })
   } catch {
     return NextResponse.json(
@@ -13,9 +14,9 @@ export async function GET() {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { db, scope, session }) => {
   let body: Record<string, unknown>
   try {
     body = await request.json()
@@ -42,7 +43,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const student = await AirtableClient.createStudent({
+    // The branch is never taken from the request body. An admin gets their own branch; a
+    // superadmin viewing all branches files it under their home branch.
+    const student = await db.createStudent({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
@@ -50,6 +53,7 @@ export async function POST(request: NextRequest) {
       duration: typeof duration === 'string' && duration.trim() ? duration.trim() : '45 min',
       monthlyFee: Number(monthlyFee),
       grade: typeof grade === 'string' ? grade.trim() : undefined,
+      branch: branchForNewRecord(scope, session),
     })
 
     return NextResponse.json({ success: true, data: student })
@@ -57,4 +61,4 @@ export async function POST(request: NextRequest) {
     console.error('[CREATE STUDENT ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to create student' }, { status: 500 })
   }
-}
+})

@@ -5,6 +5,8 @@ import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
+import { useIsAllBranches } from '@/components/SessionProvider'
+import { branchName } from '@/lib/branches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
 
@@ -35,6 +37,7 @@ export default function StudentsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const showBranchColumn = useIsAllBranches()
 
   useEffect(() => {
     fetch('/api/clickup/students')
@@ -193,6 +196,11 @@ export default function StudentsPage() {
         </span>
       ),
     },
+    // Only shown to a superadmin viewing every branch at once — a branch admin's rows are
+    // already all the same branch.
+    ...(showBranchColumn
+      ? [{ key: 'branch', label: 'Branch', render: (v: unknown) => branchName(v as string) } as Column<Student>]
+      : []),
     {
       key: 'id',
       label: 'Actions',

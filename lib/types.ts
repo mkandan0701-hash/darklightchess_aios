@@ -1,5 +1,12 @@
 import { ReactNode } from 'react'
 
+// NOTE on `id`: this is Airtable's record id (`rec…`). The Airtable tables also carry a
+// legacy text column literally named `id`, holding old ClickUp task ids — a different value.
+// Mutations address records by the `rec…` id.
+//
+// `branch` is the tenant key. An empty/absent branch is the "Unassigned" bucket, reachable
+// by superadmins only. See claude.md §3.
+
 export interface Student {
   id: string
   name: string
@@ -11,6 +18,7 @@ export interface Student {
   paymentStatus: 'paid' | 'pending' | 'overdue'
   enrolledDate: string
   grade?: string
+  branch?: string
 }
 
 export interface Lead {
@@ -22,6 +30,7 @@ export interface Lead {
   status: 'new' | 'contacted' | 'demo_booked' | 'demo_done' | 'converted' | 'lost'
   dateReceived: string
   notes?: string
+  branch?: string
 }
 
 export interface Payment {
@@ -35,6 +44,7 @@ export interface Payment {
   status: 'paid' | 'pending' | 'overdue'
   razorpayPaymentId?: string
   receiptUrl?: string
+  branch?: string
 }
 
 export interface DashboardStats {
@@ -44,6 +54,16 @@ export interface DashboardStats {
   overduePayments: number
   leadsThisMonth: number
   studentsChange?: number
+}
+
+export interface BranchStats extends DashboardStats {
+  branch: string
+  branchName: string
+}
+
+/** `byBranch` is only populated for a superadmin viewing all branches at once. */
+export interface DashboardStatsResponse extends DashboardStats {
+  byBranch?: BranchStats[]
 }
 
 export interface ActivityItem {

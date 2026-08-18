@@ -13,12 +13,15 @@ export async function GET(request: NextRequest) {
 
   console.log(`[CRON START] Running at ${timestamp}`)
 
+  // No user session — a cron trigger authenticates via CRON_SECRET above, not a branch scope.
+  const db = AirtableClient.system()
+
   let payments
   let students
   try {
     ;[payments, students] = await Promise.all([
-      AirtableClient.getPayments(),
-      AirtableClient.getStudents(),
+      db.getPayments(),
+      db.getStudents(),
     ])
   } catch (err) {
     console.error('[CRON ERROR] Airtable query failed:', err)
@@ -47,7 +50,7 @@ export async function GET(request: NextRequest) {
 
       if (dueYM <= currentYM) {
         try {
-          await AirtableClient.markPaymentOverdue(payment.id)
+          await db.markPaymentOverdue(payment.id)
           payment.status = 'overdue'
           newlyMarkedOverdue++
         } catch (err) {
@@ -64,6 +67,9 @@ export async function GET(request: NextRequest) {
   let failureCount = 0
 
   for (const payment of overduePayments) {
+    // NOTE: payment.studentId comes from Airtable's student_id field, which predates the
+    // `branch` column and may not reliably match a student record — see claude.md §9 and
+    // scripts/backfill-branch.js. A payment that fails this join is skipped, not guessed.
     const student = students.find((s) => s.id === payment.studentId)
     if (!student) {
       console.error(`[CRON ERROR] Student not found for payment ${payment.id}`)
@@ -80,7 +86,7 @@ export async function GET(request: NextRequest) {
       await sendOverdueReminderEmail(student.email, student.name, payment.amountDue, daysOverdue)
       emailsSent++
 
-      await AirtableClient.markReminderSent(payment.id, { reminderSentAt: timestamp })
+      await db.markReminderSent(payment.id, { reminderSentAt: timestamp })
 
       console.log(`[REMINDER SENT] { studentId: '${student.id}', studentName: '${student.name}' }`)
       successCount++

@@ -5,6 +5,8 @@ import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import type { Lead, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
+import { useIsAllBranches } from '@/components/SessionProvider'
+import { branchName } from '@/lib/branches'
 
 const DEFAULT_COACH = { id: 'C1', name: 'Manikandan', email: 'manikandan@darklight.com' }
 
@@ -75,6 +77,7 @@ export default function LeadsPage() {
   const [convertForm, setConvertForm] = useState(EMPTY_CONVERT_FORM)
   const [convertSubmitting, setConvertSubmitting] = useState(false)
   const [convertError, setConvertError] = useState('')
+  const showBranchColumn = useIsAllBranches()
 
   useEffect(() => {
     fetch('/api/clickup/leads')
@@ -230,6 +233,9 @@ export default function LeadsPage() {
       label: 'Date Received',
       render: (v) => formatDate(String(v)),
     },
+    ...(showBranchColumn
+      ? [{ key: 'branch', label: 'Branch', render: (v: unknown) => branchName(v as string) } as Column<Lead>]
+      : []),
     {
       key: 'id',
       label: 'Actions',

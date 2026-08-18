@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createRazorpayInvoice } from '@/services/razorpay'
 import { sendPaymentLinkEmail } from '@/lib/emailSender'
 import { sendPaymentLinkWhatsApp } from '@/lib/whatsappSender'
-import { AirtableClient } from '@/lib/airtableClient'
+import { withAuth } from '@/lib/auth/withAuth'
+import { ScopeError } from '@/lib/airtableClient'
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db }) => {
   try {
     const body = await req.json() as {
       studentId?: string
@@ -31,6 +32,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Phone must start with + (e.g. +919876543210)' }, { status: 400 })
     }
 
+    // Checked before creating a Razorpay invoice, so an out-of-scope student id can't
+    // generate a live payment link on its way to the 404.
+    await db.assertAccessible('students', studentId)
+
     const resolvedCurrency = currency ?? 'INR'
 
     const invoice = await createRazorpayInvoice(studentId, studentName, parentEmail, amount, resolvedCurrency, parentPhone)
@@ -38,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     await sendPaymentLinkEmail(parentEmail, studentName, paymentLink, amount, expiresAt, coachName)
     await sendPaymentLinkWhatsApp(parentPhone, studentName, paymentLink, amount, expiresAt)
-    await AirtableClient.updateStudentPaymentLink(studentId, paymentLink, invoiceId)
+    await db.updateStudentPaymentLink(studentId, paymentLink, invoiceId)
 
     console.log('[PAYMENT LINK GENERATED]', { studentId, invoiceId, paymentLink })
 
@@ -53,7 +58,8 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     })
   } catch (err) {
+    if (err instanceof ScopeError) throw err
     console.error('[PAYMENT LINK ERROR]', err)
     return NextResponse.json({ error: 'Failed to generate payment link' }, { status: 500 })
   }
-}
+})

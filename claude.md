@@ -1,511 +1,311 @@
-# BUILD ROADMAP - Darklight AIOS (Claude Code Approach)
+# Darklight Chess Academy AIOS
 
-**Complete plan to build all 5 automation workflows**
+**Internal operations dashboard + 5 automation workflows for a 3-branch chess academy.**
 
----
+Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airtable is the system of record.**
 
-# CURRENT STATUS
-
-✅ **Workflow 1: Lead Capture + Coach Assignment** - COMPLETE
-- Route: `/api/webhooks/lead-capture`
-- Files: 3 (API route, coach matcher, email sender)
-- Status: Tested and working
-- Time spent: ~1.5 hours
+> ClickUp was fully removed in commit `69b8ede`. Some API route *paths* still read `/api/clickup/*` —
+> that naming is vestigial. Every one of them talks to Airtable. Do not add ClickUp code.
 
 ---
 
-# NEXT 4 WORKFLOWS (Remaining 2-3 hours)
+## 1. Current state
 
-## 🔨 WORKFLOW 2: Demo Scheduling + Google Meet
+All 5 automation workflows are **built and live**. This is not a greenfield project.
 
-**Priority:** HIGH (needed for lead conversion)
+### Pages (8)
 
-**Time Estimate:** 45 minutes
+| Path | Purpose | Who can see it |
+|---|---|---|
+| `/` | Dashboard — 4 stat cards, quick actions | admin + superadmin |
+| `/students` | Student list, add, payment link, mark paid/unpaid | admin + superadmin |
+| `/leads` | Lead funnel, add, book demo, convert to student | admin + superadmin |
+| `/payments` | Payment list, remind, mark paid/unpaid | admin + superadmin |
+| `/communications` | Email / WhatsApp composer | admin + superadmin |
+| `/analytics` | Funnel, revenue, source conversion charts | **superadmin only** |
+| `/settings` | API connection status, JSON export | **superadmin only** |
+| `/login` | Credential login | public |
 
-**What It Does:**
-```
-Coach selects date/time for demo
-    ↓
-Create Google Calendar event
-    ↓
-Generate Google Meet link
-    ↓
-Send confirmation emails to parent + coach
-    ↓
-Send WhatsApp confirmation to parent
-    ↓
-Update ClickUp lead status → "Demo Scheduled"
-    ↓
-Return Meet link
-```
+### API routes (23)
 
-**Files to Create:**
-1. `app/api/schedule-demo/route.ts` - Main API route
-2. `lib/googleMeet.ts` - Google Calendar + Meet integration
-3. Update `lib/emailSender.ts` - Add demo confirmation email
-4. Create `lib/whatsappSender.ts` - WhatsApp messages
+| Route | Method | Purpose | Auth |
+|---|---|---|---|
+| `/api/auth/login` | POST | Credential login → session cookie | public (rate limited) |
+| `/api/auth/logout` | POST | Clear session | session |
+| `/api/auth/branch` | POST | Superadmin switches active branch | superadmin |
+| `/api/auth/google` | GET | Google OAuth consent redirect | **superadmin** |
+| `/api/auth/google/callback` | GET | Prints `GOOGLE_REFRESH_TOKEN` | **superadmin** |
+| `/api/clickup/students` | GET/POST | List / create students (Airtable) | session, branch-scoped |
+| `/api/clickup/leads` | GET/POST | List / create leads | session, branch-scoped |
+| `/api/clickup/payments` | GET | List payments | session, branch-scoped |
+| `/api/clickup/stats` | GET | Dashboard aggregates (+ `byBranch` for superadmin) | session, branch-scoped |
+| `/api/leads/convert` | POST | Lead → Student; student inherits the lead's branch | session, scope-asserted |
+| `/api/mark-paid` | POST | Manual paid + receipt email/WhatsApp | session, scope-asserted |
+| `/api/mark-unpaid` | POST | Revert to pending | session, scope-asserted |
+| `/api/send-reminder` | POST | Overdue reminder email/WhatsApp | session, scope-asserted |
+| `/api/payment-link` | POST | Razorpay invoice + email/WhatsApp | session, scope-asserted |
+| `/api/schedule-demo` | POST | Google Meet event + confirmations | session, scope-asserted |
+| `/api/communications/email` | POST | Send an email | session |
+| `/api/communications/whatsapp` | POST | Send a WhatsApp message | session |
+| `/api/razorpay/payments` | GET | Raw Razorpay payments (no branch dimension) | **superadmin** |
+| `/api/settings/status` | GET | Which integrations are configured | **superadmin** |
+| `/api/webhooks/lead-capture` | POST | External form → lead + coach assign + welcome | per-branch shared secret |
+| `/api/webhooks/payment` | POST | Razorpay payment → enroll + receipt | Razorpay HMAC |
+| `/api/cron/daily-reminders` | GET | 09:00 daily overdue sweep | `Bearer CRON_SECRET` |
 
-**Environment Variables Needed:**
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `NEXT_PUBLIC_TWILIO_ACCOUNT_SID`
-- `NEXT_PUBLIC_TWILIO_AUTH_TOKEN`
-- `NEXT_PUBLIC_TWILIO_PHONE`
+### Workflows
 
-**External APIs Used:**
-- Google Calendar API
-- Google Meet API
-- Gmail
-- Twilio WhatsApp
+| # | Workflow | Entry point | Status |
+|---|---|---|---|
+| 1 | Lead capture + coach assignment | `/api/webhooks/lead-capture` | live |
+| 2 | Demo scheduling + Google Meet | `/api/schedule-demo` | live |
+| 3 | Payment link generation | `/api/payment-link` | live |
+| 4 | Payment received processing | `/api/webhooks/payment` | live |
+| 5 | Daily overdue reminders | `/api/cron/daily-reminders` | live (`vercel.json` cron) |
 
-**Expected Response:**
+---
+
+## 2. Stack and hard constraints
+
+**Dependencies are deliberately minimal:** `next@14.2.0`, `react`, `react-dom`, `recharts`, `nodemailer`.
+
+- **No-new-npm-deps rule.** Auth is built on Node's built-in `crypto` and the Web Crypto API. Do not
+  add `next-auth`, `jose`, `bcrypt`, `jsonwebtoken`, an Airtable SDK, SWR, or react-query. If you
+  think you need one, say so and ask first.
+- **Next 14.2 ⇒ `middleware.ts` runs on the Edge runtime, with no opt-out.** `export const runtime = 'nodejs'`
+  in middleware is a Next 15.2+ feature. Middleware therefore verifies sessions with
+  `crypto.subtle` (`lib/auth/session-edge.ts`), never `node:crypto`.
+- **Never create a barrel file at `lib/auth/index.ts`.** It would let the Edge middleware bundle
+  transitively pull in `node:crypto` and break the build. `session-edge.ts` imports only
+  `base64url.ts` and `types.ts`.
+- No database. Airtable REST is called with raw `fetch` from `lib/airtableClient.ts`.
+- All pages are `'use client'` and fetch from `/api/*` in `useEffect`. The only server components are
+  `app/layout.tsx` and `app/(dashboard)/layout.tsx`.
+
+---
+
+## 3. Branch and role model
+
+The academy runs **3 branches**. Branch identity is stored in Airtable as an **opaque id**; the
+human-readable name lives in the `ACADEMY_BRANCHES` env var, so renaming a branch is an env edit and
+never a data migration.
+
+| Branch id | Display name |
+|---|---|
+| `BRANCH_SAIBABA` | Saibaba Colony |
+| `BRANCH_SOWRIPALAYAM` | Sowripalayam |
+| `BRANCH_KUNIYAMUTHUR` | Kuniyamuthur |
+
+Two roles:
+
+| Role | Sees | Can mutate | Notes |
+|---|---|---|---|
+| `admin` | exactly one branch | records in that branch only | 2 of these — one per branch |
+| `superadmin` | all 3 branches + Unassigned | any record | 1 of these; home branch `BRANCH_KUNIYAMUTHUR`, which they run directly |
+
+Assignment:
+
+- Admin A → `BRANCH_SAIBABA`
+- Admin B → `BRANCH_SOWRIPALAYAM`
+- Superadmin (Manikandan) → all three; records they create default to `BRANCH_KUNIYAMUTHUR`
+
+**The Unassigned rule.** A record with an empty `branch` field is visible to the **superadmin only**.
+This is the deliberate fail-safe: an unclassified record is never silently exposed to the wrong
+admin. The superadmin's job is to triage the Unassigned bucket.
+
+**The branch cookie is not a privilege.** `dl_branch` only ever *narrows* what a superadmin sees. For
+an `admin` it is ignored entirely — `scopeForSession` never reads it for that role.
+
+---
+
+## 4. Authorization model
+
+Three independent planes. Each one assumes the others might have a hole.
+
+1. **Gate** — `middleware.ts` rejects any request without a valid session cookie. Pages get a 307 to
+   `/login?next=…`; `/api/*` gets a 401 JSON body. Public prefixes are exactly
+   `/login`, `/api/auth/login`, `/api/webhooks/`, `/api/cron/`.
+2. **Read scoping** — every Airtable read goes through one private `list()` method that applies a
+   `filterByFormula` derived from the caller's `Scope`. There is no unscoped read export.
+3. **Write authorization** — every mutation calls `assertInScope(table, recordId)` *before* patching.
+
+The invariant, stated once:
+
+> **Middleware gates the request. Every Airtable read carries a scope. Every mutation asserts the
+> target record is in scope.**
+
+Two rules that are easy to get wrong:
+
+- **Middleware sets no identity headers, and handlers never read any.** `withAuth` re-verifies the
+  cookie itself with `node:crypto`. A gap in the matcher can therefore never become an auth bypass.
+- **`assertInScope` runs before `patchRecord`, not inside it.** `patchRecord` logs and returns `void`
+  on a non-OK response — authorization placed inside it would fail *open*.
+
+Cross-branch record ids are reported to the client as **404, not 403**, so an admin cannot enumerate
+another branch's record ids by probing status codes. The real denial is logged server-side as
+`[RBAC DENY]`.
+
+---
+
+## 5. Data model
+
+Airtable base `AIRTABLE_BASE_ID`, three tables. Field names are **snake_case in Airtable** and
+camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
+
+| Table | Fields |
+|---|---|
+| **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
+| **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `created_at`, **`branch`** |
+| **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
+
+`branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
+display names. Pre-creating those choices is what stops `typecast: true` from inventing a
+`Branch_1`-style typo choice on the first bad write.
+
+Two traps:
+
+- **`id` is not the record id.** `Student.id` / `Lead.id` / `Payment.id` in TypeScript hold Airtable's
+  `rec…` id. The tables *also* carry a legacy text column literally named `id`, holding old ClickUp
+  task ids. They are different values. Mutations address records by the `rec…` id.
+- **singleSelect fields deserialize as `{id, name, color}`**, not a string. Always read them through
+  the `selectName()` helper.
+
+---
+
+## 6. Environment variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `AIRTABLE_API_KEY` | yes | PAT. Needs `schema.bases:write` to run `scripts/add-branch-field.js`. |
+| `AIRTABLE_BASE_ID` | yes | Base id |
+| `AUTH_SECRET` | **yes** | ≥32 chars, `openssl rand -hex 32`. HMAC key for session tokens. |
+| `ACADEMY_USERS` | **yes** | JSON array of users (below) |
+| `ACADEMY_USERS_B64` | no | base64 of the above, for pasting into the Vercel UI |
+| `ACADEMY_BRANCHES` | no | JSON `[{id,name}]`; falls back to the 3 built-in ids |
+| `SESSION_TTL_HOURS` | no | default `12` |
+| `LEAD_WEBHOOK_SECRETS` | no | JSON map `secret → branch id` |
+| `LEAD_WEBHOOK_SECRET` | no | legacy single secret; falls back to `BACKFILL_DEFAULT_BRANCH` |
+| `BACKFILL_DEFAULT_BRANCH` | no | default `BRANCH_KUNIYAMUTHUR` |
+| `COACH_BRANCH_MAP` | no | JSON `coach name → branch id`, used by the backfill script |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | | payments |
+| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | | outbound email |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_WHATSAPP_FROM` | | WhatsApp |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` / `GOOGLE_REFRESH_TOKEN` / `GOOGLE_CALENDAR_ID` | | Meet links |
+| `CRON_SECRET` | | Vercel cron auth |
+| `COACH_POOL` | no | JSON array of coaches for lead assignment |
+
+`ACADEMY_USERS` shape — one line, unquoted, no `#` (the `.env.local` loader in `scripts/` parses
+`^([A-Z0-9_]+)=(.*)$`):
+
 ```json
-{
-  "success": true,
-  "meetLink": "https://meet.google.com/abc-defg",
-  "eventId": "event123",
-  "confirmedAt": "2026-06-27T15:00:00Z"
-}
+[
+  {"email":"admin.saibaba@darklight.in","name":"Admin A","role":"admin","branch":"BRANCH_SAIBABA","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"admin.sowripalayam@darklight.in","name":"Admin B","role":"admin","branch":"BRANCH_SOWRIPALAYAM","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"manikandan@darklight.in","name":"Manikandan","role":"superadmin","branch":"BRANCH_KUNIYAMUTHUR","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"}
+]
 ```
+
+⚠️ The hash is `.`-delimited, not the traditional `$`-delimited `scrypt$N$r$p$salt$hash` — Next's
+env loader runs `dotenv-expand` over every value in `.env.local` and silently strips anything
+matching `$word`. Never hand-write a hash with `$` in it.
+
+Generate a hash with:
+
+```bash
+node scripts/hash-password.js 'the-password'
+node scripts/hash-password.js --user admin.saibaba@darklight.in,Admin A,admin,BRANCH_SAIBABA 'the-password'
+```
+
+⚠️ **`AUTH_SECRET` is inlined into the Edge middleware bundle at build time.** Rotating it requires a
+**redeploy**, not just an env-var update. Both session modules throw on first use if it is missing or
+under 32 chars — and they throw *outside* the verify `try`, so a misconfiguration surfaces as a 500
+rather than as a silent "every session is invalid". (First use, not module load, so `npm run build`
+still works in an environment without secrets.)
 
 ---
 
-## 💰 WORKFLOW 3: Payment Link Generation
+## 7. Key files
 
-**Priority:** HIGH (enables revenue collection)
-
-**Time Estimate:** 30 minutes
-
-**What It Does:**
-```
-Coach sets student fee (e.g., ₹5,000)
-    ↓
-API generates Razorpay invoice
-    ↓
-Send payment link via email to parent
-    ↓
-Send payment link via WhatsApp to parent
-    ↓
-Update ClickUp student record with payment link
-    ↓
-Return payment link
-```
-
-**Files to Create:**
-1. `app/api/payment-link/route.ts` - Main API route
-2. `services/razorpay.ts` - Razorpay integration
-
-**Environment Variables Needed:**
-- `NEXT_PUBLIC_RAZORPAY_KEY_ID`
-- `RAZORPAY_KEY_SECRET`
-- `NEXT_PUBLIC_CLICKUP_API_KEY`
-
-**External APIs Used:**
-- Razorpay API
-- Gmail
-- Twilio WhatsApp
-- ClickUp API
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "paymentLink": "https://rzp.io/i/abc123",
-  "invoiceId": "INV_001",
-  "expiresAt": "2026-07-27T00:00:00Z"
-}
-```
+| File | Role |
+|---|---|
+| `middleware.ts` | The gate. Edge runtime. Public-prefix list lives here. |
+| `lib/airtableClient.ts` | The **only** data access. Scoped instance via `forScope()` / `system()`. |
+| `lib/auth/session.ts` / `session-edge.ts` | Sign + verify. Node and Edge halves, deliberately separate. |
+| `lib/auth/rbac.ts` | `scopeForSession`, `canAccessBranch` — the role → scope rules. |
+| `lib/auth/withAuth.ts` | Route wrapper. Injects `{ session, scope, db }`. |
+| `lib/branches.ts` | Branch ids, display names, `isValidBranchId` whitelist. |
+| `app/(dashboard)/layout.tsx` | Verifies session server-side, injects `SessionProvider`. |
+| `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
+| `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
 
 ---
 
-## 📥 WORKFLOW 4: Payment Received Webhook
+## 8. Setup and verification
 
-**Priority:** CRITICAL (processes revenue)
+```bash
+npm install
+cp .env.example .env.local          # fill in AUTH_SECRET, ACADEMY_USERS, AIRTABLE_*
 
-**Time Estimate:** 30 minutes
+node scripts/hash-password.js 'pw'  # → paste into ACADEMY_USERS
+node scripts/add-branch-field.js    # adds the branch column (needs schema.bases:write)
+node scripts/backfill-branch.js     # dry run — review the output
+node scripts/backfill-branch.js --apply
 
-**What It Does:**
-```
-Parent completes payment on Razorpay
-    ↓
-Razorpay sends webhook to your API
-    ↓
-Verify payment signature
-    ↓
-Send receipt email to parent
-    ↓
-Send receipt WhatsApp to parent
-    ↓
-Update ClickUp student status → "Active" (enrolled)
-    ↓
-Log payment to Google Sheets (backup)
-    ↓
-Return success
+npx tsc --noEmit && npm run build
+npm run dev
 ```
 
-**Files to Create:**
-1. `app/api/webhooks/payment/route.ts` - Webhook handler
-2. `lib/receiptGenerator.ts` - Email receipt template
+`tsc` is the real check: because the unscoped static reads were deleted from `AirtableClient`, any
+call site that forgot to pass a scope is a type error.
 
-**Environment Variables Needed:**
-- `RAZORPAY_KEY_SECRET` (for signature verification)
-- `NEXT_PUBLIC_CLICKUP_API_KEY`
-- `GOOGLE_SHEETS_API_KEY` (optional, for backup)
+### Acceptance checks
 
-**External APIs Used:**
-- Razorpay (webhook source)
-- Gmail (receipt email)
-- Twilio WhatsApp (receipt message)
-- ClickUp API (update student)
-- Google Sheets (optional backup)
-
-**Razorpay Webhook to Expect:**
-```json
-{
-  "event": "payment.authorized",
-  "payload": {
-    "payment": {
-      "entity": {
-        "id": "pay_123456",
-        "amount": 500000,
-        "status": "captured",
-        "email": "parent@email.com",
-        "notes": {
-          "studentId": "STU_001"
-        }
-      }
-    }
-  }
-}
-```
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "message": "Payment processed",
-  "receiptSent": true
-}
-```
+1. `curl -i localhost:3000/` → 307 to `/login?next=%2F`.
+   `curl -i localhost:3000/api/clickup/students` → **401 JSON**, not a redirect.
+2. Webhooks and cron still work unauthenticated-by-cookie:
+   `curl -H "Authorization: Bearer $CRON_SECRET" localhost:3000/api/cron/daily-reminders` → 200.
+3. Log in as each of the 3 users. Wrong password → a generic error; the 6th attempt in 15 min → 429.
+4. **Read isolation** — as Admin A, `/students` `/leads` `/payments` show only Saibaba Colony rows.
+   Repeat as Admin B; confirm the two sets are disjoint.
+5. **IDOR blocked** — take a Sowripalayam student's `rec…` id and, as Admin A:
+   `curl -b 'dl_session=<A>' -X POST localhost:3000/api/mark-paid -d '{"studentId":"rec…","studentName":"x"}'`
+   → **404**, the Airtable record unchanged, `[RBAC DENY]` in the server log. Repeat for
+   `mark-unpaid`, `send-reminder`, `payment-link`, `schedule-demo`, `leads/convert`.
+6. **Header spoofing** — the same call with `-H 'x-dl-user: manikandan@…'` → still 404.
+7. **Cookie tampering** — flip a character in `dl_session` → 401. A token signed with a different
+   `AUTH_SECRET` → rejected. An unsigned hand-crafted `{"role":"superadmin"}` → rejected.
+8. **Branch cookie is not a privilege** — as Admin A,
+   `-b 'dl_session=<A>; dl_branch=BRANCH_SOWRIPALAYAM'` → still only Saibaba Colony.
+   `POST /api/auth/branch` as Admin A → **403**.
+9. **Superadmin** — sees all 3, the per-branch cards sum to the totals, the switcher narrows and
+   restores, Analytics and Settings are reachable (Admin A gets no nav item and a 403 on the API).
+10. **Unassigned** — a record with an empty `branch` is invisible to both admins, visible to the
+    superadmin in All Branches mode.
+11. **Expiry / logout** — `SESSION_TTL_HOURS=0.01`, wait, refresh → `/login`. Logout clears the
+    cookie and the back button re-redirects.
 
 ---
 
-## 🔔 WORKFLOW 5: Daily Overdue Reminders
-
-**Priority:** MEDIUM (increases collection rates)
-
-**Time Estimate:** 30 minutes
-
-**What It Does:**
-```
-Vercel Cron triggers at 9 AM daily
-    ↓
-Query ClickUp for overdue payments (due date passed, status not "Active")
-    ↓
-For each overdue student:
-    ├─ Send email reminder
-    ├─ Send WhatsApp reminder
-    └─ Update ClickUp with "reminder_sent" timestamp
-    ↓
-Log summary (how many processed)
-    ↓
-Return success
-```
-
-**Files to Create:**
-1. `app/api/cron/daily-reminders/route.ts` - Cron handler
-2. Update `vercel.json` - Add cron schedule
-
-**Environment Variables Needed:**
-- `NEXT_PUBLIC_CLICKUP_API_KEY`
-- `CRON_SECRET` (Vercel provides this)
-
-**External APIs Used:**
-- ClickUp API (query overdue)
-- Gmail (reminder email)
-- Twilio WhatsApp (reminder message)
-
-**Vercel Config (vercel.json):**
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/daily-reminders",
-      "schedule": "0 9 * * *"
-    }
-  ]
-}
-```
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "remindersProcessed": 5,
-  "emailsSent": 5,
-  "whatsappSent": 5,
-  "timestamp": "2026-06-27T09:00:00Z"
-}
-```
-
----
-
-# BUILD ORDER & TIMING
-
-```
-Session 1 (Completed):
-├─ Workflow 1: Lead Capture ✅ (1.5 hours)
-
-Session 2 (Next):
-├─ Workflow 2: Demo Scheduling (45 mins)
-├─ Workflow 3: Payment Link (30 mins)
-├─ Workflow 4: Payment Webhook (30 mins)
-├─ Workflow 5: Daily Reminders (30 mins)
-└─ Testing All Workflows (30 mins)
-   Total: 2.5-3 hours
-
-Session 3:
-├─ Deploy to Vercel
-├─ Setup environment variables
-├─ Configure Razorpay webhooks
-├─ Test on live URL
-└─ Go live! 🎉
-```
-
----
-
-# WHAT TO TELL CLAUDE CODE
-
-For each workflow, use this template prompt:
-
-```
-Build {WORKFLOW_NAME} API route.
-
-Route: {ENDPOINT}
-
-What it does:
-{DESCRIPTION}
-
-Files to create:
-{FILE_LIST}
-
-Environment variables:
-{ENV_VARS}
-
-External APIs:
-{API_LIST}
-
-Expected request:
-{REQUEST_JSON}
-
-Expected response:
-{RESPONSE_JSON}
-
-Implementation details:
-{DETAILS}
-
-Show me the complete code for all files.
-```
-
----
-
-# SPECIFIC PROMPTS
-
-### Workflow 2 Prompt:
-
-```
-Build demo scheduling API route.
-
-Route: POST /api/schedule-demo
-
-What it does:
-1. Coach submits demo booking with parent availability + date/time
-2. Create Google Calendar event
-3. Auto-generate Google Meet link
-4. Send confirmation email to parent
-5. Send confirmation WhatsApp to parent
-6. Send email to coach
-7. Update ClickUp lead status → "Demo Scheduled"
-
-Files:
-- app/api/schedule-demo/route.ts
-- lib/googleMeet.ts (Google Calendar + Meet integration)
-- Update lib/emailSender.ts (add demo confirmation email)
-- lib/whatsappSender.ts (new file for WhatsApp)
-
-Implementation:
-- Accept leadId, parentEmail, parentName, selectedDate, selectedTime
-- Create Google Calendar event with Meet link
-- Extract Meet URL from event
-- Send emails and WhatsApp
-- Update ClickUp with demo details
-- Return Meet link in response
-
-Show me complete code for all files.
-```
-
-### Workflow 3 Prompt:
-
-```
-Build payment link generation API route.
-
-Route: POST /api/payment-link
-
-What it does:
-1. Receive student ID, amount, parent email
-2. Create Razorpay invoice
-3. Send payment link email to parent
-4. Send payment link WhatsApp to parent
-5. Update ClickUp student record
-6. Return payment link
-
-Files:
-- app/api/payment-link/route.ts
-- services/razorpay.ts (Razorpay integration)
-
-Implementation:
-- Use Razorpay API to create invoice
-- Extract payment link from response
-- Send via email and WhatsApp
-- Update ClickUp with payment link
-- Return payment link + expiry
-
-Show me complete code.
-```
-
-### Workflow 4 Prompt:
-
-```
-Build payment webhook handler.
-
-Route: POST /api/webhooks/payment
-
-What it does:
-1. Razorpay sends payment confirmation webhook
-2. Verify webhook signature
-3. Send receipt email
-4. Send receipt WhatsApp
-5. Update ClickUp student status → "Active"
-6. Log to Google Sheets (optional)
-
-Files:
-- app/api/webhooks/payment/route.ts
-- lib/receiptGenerator.ts (email receipt template)
-
-Implementation:
-- Extract payment details from webhook
-- Verify signature using RAZORPAY_KEY_SECRET
-- Generate receipt with payment details
-- Send email + WhatsApp
-- Update ClickUp: status = "Active", enrollment_date = today
-- Return success
-
-Show me complete code.
-```
-
-### Workflow 5 Prompt:
-
-```
-Build daily overdue reminders cron job.
-
-Route: GET /api/cron/daily-reminders
-
-Schedule: Daily at 9 AM (add to vercel.json)
-
-What it does:
-1. Get all students with overdue payments from ClickUp
-2. For each overdue student:
-   - Send reminder email
-   - Send reminder WhatsApp
-   - Update ClickUp with reminder_sent timestamp
-3. Log summary
-
-Files:
-- app/api/cron/daily-reminders/route.ts
-- Update vercel.json (add cron schedule)
-
-Implementation:
-- Verify request is from Vercel (check authorization header)
-- Query ClickUp for tasks: due_date < today AND status != "Active"
-- Loop through each overdue student
-- Send emails/WhatsApp
-- Update each task with reminder_sent timestamp
-- Log results
-- Return summary
-
-Show me complete code.
-```
-
----
-
-# WHAT YOU NEED BEFORE BUILDING
-
-**Environment Variables (Get These First):**
-
-```
-✅ CLICKUP_API_KEY - Already have
-✅ TWILIO_ACCOUNT_SID - Have
-✅ TWILIO_AUTH_TOKEN - Have
-✅ TWILIO_PHONE - Have
-
-❌ RAZORPAY_KEY_ID - Need to get
-❌ RAZORPAY_KEY_SECRET - Need to get
-❌ GOOGLE_CLIENT_ID - Need to get
-❌ GOOGLE_CLIENT_SECRET - Need to get
-```
-
-**Before building workflows 2-5, collect these:**
-
-1. Go to: https://razorpay.com/dashboard/access/tokens
-   - Get: Key ID + Key Secret
-   - Add to `.env.local`
-
-2. Go to: https://console.cloud.google.com
-   - Create OAuth credentials
-   - Get: Client ID + Client Secret
-   - Add to `.env.local`
-
----
-
-# TESTING PLAN
-
-After each workflow is built:
-
-1. Create `test-workflow-X.js`
-2. Run `node test-workflow-X.js`
-3. Check console logs from `npm run dev`
-4. Verify external effects (emails, ClickUp updates, etc.)
-
----
-
-# FINAL DEPLOYMENT
-
-Once all 5 workflows are complete:
-
-1. Push to GitHub
-2. Deploy to Vercel
-3. Add environment variables to Vercel settings
-4. Configure Razorpay webhook URL: `https://your-domain.com/api/webhooks/payment`
-5. Test each workflow on live URL
-6. Monitor logs
-
----
-
-# EXPECTED TIMELINE
-
-| Workflow | Time | Status |
-|----------|------|--------|
-| 1. Lead Capture | 1.5h | ✅ DONE |
-| 2. Demo Scheduling | 45m | ⏳ NEXT |
-| 3. Payment Link | 30m | ⏳ THEN |
-| 4. Payment Webhook | 30m | ⏳ THEN |
-| 5. Daily Reminders | 30m | ⏳ THEN |
-| Testing All | 30m | ⏳ THEN |
-| Deployment | 30m | ⏳ FINAL |
-| **TOTAL** | **3-4 hours** | 🚀 |
-
----
-
-**Next Step:** Build Workflow 2 (Demo Scheduling)
-
-Ready to start? Tell me "Build Workflow 2" and I'll give you the exact prompt! 🚀
+## 9. Known issues and deliberate non-goals
+
+- **`Payment.student_id` is unreliable.** `mapRecordToPayment` reads a `student_id` field that the
+  original migration never created, and `daily-reminders` joins on it. Payments that cannot be
+  resolved to a student are left **Unassigned** by the backfill rather than guessed. New payments get
+  their branch at creation time.
+- **Reads are now paginated.** They previously capped silently at Airtable's first 100 records.
+  Records that were invisible before will now appear — that is a fix, not a regression.
+- **`schedule-demo` writes the lead status `'Demo Scheduled'`** while the type union expects
+  `'demo_booked'`. With `typecast: true` Airtable silently creates a junk select choice. Pre-existing;
+  not fixed here.
+- **`/api/communications/*` takes a free-form `to:` address.** There is no record to scope it
+  against, so a branch admin can email an arbitrary address. Residual risk; a follow-up should
+  require a recipient drawn from the caller's own branch.
+- **`mark-paid` trusts client-supplied `studentName` / `parentEmail` / `amount`** for the receipt
+  body. A same-branch admin can send a receipt with a wrong amount. Out of scope.
+- **Settings persist to `localStorage`** (`darklight_settings`), per-browser. They are not
+  server-side and not branch-scoped.
+- **Coach matching is availability-only** (`lib/coachMatcher.ts`) — no per-branch coach routing.
+- **Login rate limiting is a module-level `Map`**, therefore per-serverless-instance and advisory
+  only.
+- **No audit log.** `[RBAC DENY]` plus `by: session.email` on action logs is the entire trail.
+  Acceptable at 3 users.

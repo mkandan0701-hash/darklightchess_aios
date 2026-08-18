@@ -1,13 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createGoogleMeetLink } from '@/lib/googleMeet'
 import { sendDemoConfirmationToParent, sendDemoConfirmationToCoach } from '@/lib/emailSender'
 import { sendDemoConfirmationWhatsApp } from '@/lib/whatsappSender'
-import { AirtableClient } from '@/lib/airtableClient'
+import { withAuth } from '@/lib/auth/withAuth'
+import { ScopeError } from '@/lib/airtableClient'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db }) => {
   let body: Record<string, unknown>
 
   try {
@@ -63,6 +64,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Checked before creating a Google Meet event, so an out-of-scope lead id can't trigger
+    // the side effects on its way to the 404.
+    await db.assertAccessible('leads', leadId)
+
     // 1. Create Google Meet event
     const startDateTime = new Date(`${selectedDate}T${selectedTime}:00`).toISOString()
     const { meetLink, eventId } = await createGoogleMeetLink(
@@ -79,7 +84,7 @@ export async function POST(req: NextRequest) {
     await sendDemoConfirmationWhatsApp(parentPhone, parentName, meetLink, selectedDate, selectedTime)
 
     // 4. Update lead status
-    await AirtableClient.updateLeadStatus(leadId, 'Demo Scheduled', {
+    await db.updateLeadStatus(leadId, 'Demo Scheduled', {
       demoDate: selectedDate,
       demoTime: selectedTime,
       meetLink,
@@ -96,7 +101,8 @@ export async function POST(req: NextRequest) {
       confirmedAt,
     })
   } catch (err) {
+    if (err instanceof ScopeError) throw err
     console.error('[DEMO ERROR]', err)
     return NextResponse.json({ error: 'Failed to schedule demo' }, { status: 500 })
   }
-}
+})

@@ -1,4 +1,4 @@
-import { AirtableClient } from '@/lib/airtableClient'
+import type { AirtableClient } from '@/lib/airtableClient'
 import type { Lead } from '@/lib/types'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -7,7 +7,17 @@ export type CreateLeadResult =
   | { ok: true; lead: Lead }
   | { ok: false; status: number; error: string }
 
-export async function validateAndCreateLead(body: Record<string, unknown>): Promise<CreateLeadResult> {
+/**
+ * @param db a scoped client — from withAuth for a user request, or AirtableClient.system()
+ *   for the lead-capture webhook.
+ * @param branch resolved by the caller (the signed-in user's scope, or the webhook secret).
+ *   Never read from the request body: a caller that can name its own branch isn't scoped.
+ */
+export async function validateAndCreateLead(
+  db: AirtableClient,
+  body: Record<string, unknown>,
+  branch: string
+): Promise<CreateLeadResult> {
   const { name, email, phone, source, notes } = body
 
   if (typeof name !== 'string' || name.trim().length < 2) {
@@ -24,12 +34,13 @@ export async function validateAndCreateLead(body: Record<string, unknown>): Prom
   }
 
   try {
-    const lead = await AirtableClient.createLead({
+    const lead = await db.createLead({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
       source: source.trim(),
       notes: typeof notes === 'string' ? notes.trim() : undefined,
+      branch,
     })
     return { ok: true, lead }
   } catch (err) {

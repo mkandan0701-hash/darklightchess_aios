@@ -2,11 +2,16 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSession } from '@/components/SessionProvider'
+import { branchName } from '@/lib/branches'
+import type { Role } from '@/lib/auth/types'
 
 interface NavItem {
   href: string
   label: string
   icon: React.ReactNode
+  /** Omit for both roles. Analytics and Settings are superadmin-only. */
+  roles?: Role[]
 }
 
 function HomeIcon() {
@@ -78,13 +83,18 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/students', label: 'Students', icon: <UsersIcon /> },
   { href: '/leads', label: 'Leads', icon: <TrendingUpIcon /> },
   { href: '/payments', label: 'Payments', icon: <CreditCardIcon /> },
-  { href: '/analytics', label: 'Analytics', icon: <BarChartIcon /> },
+  { href: '/analytics', label: 'Analytics', icon: <BarChartIcon />, roles: ['superadmin'] },
   { href: '/communications', label: 'Communications', icon: <MessageIcon /> },
-  { href: '/settings', label: 'Settings', icon: <SettingsIcon /> },
+  { href: '/settings', label: 'Settings', icon: <SettingsIcon />, roles: ['superadmin'] },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const { session, scope } = useSession()
+
+  const items = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(session.role))
+  const currentBranchLabel =
+    scope.branches === 'all' ? 'All Branches' : branchName(scope.branches[0])
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 bg-primary flex flex-col z-40 shadow-lg">
@@ -99,9 +109,15 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Active branch — always visible so an admin knows which branch they're in */}
+      <div className="px-5 py-3 border-b border-white/10">
+        <p className="text-white/40 text-[11px] uppercase tracking-wider">Viewing</p>
+        <p className="text-white text-sm font-semibold truncate">{currentBranchLabel}</p>
+      </div>
+
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const isActive =
             item.href === '/'
               ? pathname === '/'

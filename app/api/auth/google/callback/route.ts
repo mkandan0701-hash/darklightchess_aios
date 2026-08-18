@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { exchangeCodeForTokens } from '@/lib/googleAuth'
+import { withAuth } from '@/lib/auth/withAuth'
 
 function renderErrorPage(message: string): NextResponse {
   const html = `<html>
@@ -62,22 +63,27 @@ function renderSuccessPage(refreshToken: string): NextResponse {
   })
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    const code = request.nextUrl.searchParams.get('code')
+// Superadmin-only: this page prints a Google refresh token in plaintext. Before this project
+// had authentication at all, that page was reachable by anyone who found the URL.
+export const GET = withAuth(
+  async (request) => {
+    try {
+      const code = request.nextUrl.searchParams.get('code')
 
-    if (!code) {
-      console.error('[GOOGLE AUTH ERROR]', 'Authorization code not found')
-      return renderErrorPage('Authorization code not found in the callback URL.')
+      if (!code) {
+        console.error('[GOOGLE AUTH ERROR]', 'Authorization code not found')
+        return renderErrorPage('Authorization code not found in the callback URL.')
+      }
+
+      const { refresh_token } = await exchangeCodeForTokens(code)
+
+      console.log('[GOOGLE AUTH SUCCESS]', { refresh_token: refresh_token.substring(0, 20) + '...' })
+
+      return renderSuccessPage(refresh_token)
+    } catch (err) {
+      console.error('[GOOGLE AUTH ERROR]', err)
+      return renderErrorPage('Failed to exchange authorization code for tokens. Check server logs for details.')
     }
-
-    const { refresh_token } = await exchangeCodeForTokens(code)
-
-    console.log('[GOOGLE AUTH SUCCESS]', { refresh_token: refresh_token.substring(0, 20) + '...' })
-
-    return renderSuccessPage(refresh_token)
-  } catch (err) {
-    console.error('[GOOGLE AUTH ERROR]', err)
-    return renderErrorPage('Failed to exchange authorization code for tokens. Check server logs for details.')
-  }
-}
+  },
+  { roles: ['superadmin'] }
+)

@@ -4,12 +4,15 @@ import { useEffect, useState, useMemo } from 'react'
 import Table from '@/components/Table'
 import type { Payment, Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
+import { useIsAllBranches } from '@/components/SessionProvider'
+import { branchName } from '@/lib/branches'
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const showBranchColumn = useIsAllBranches()
 
   useEffect(() => {
     fetch('/api/clickup/payments')
@@ -158,6 +161,9 @@ export default function PaymentsPage() {
         </span>
       ),
     },
+    ...(showBranchColumn
+      ? [{ key: 'branch', label: 'Branch', render: (v: unknown) => branchName(v as string) } as Column<Payment>]
+      : []),
     {
       key: 'id',
       label: 'Actions',

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { AirtableClient } from '@/lib/airtableClient'
+import { withAuth } from '@/lib/auth/withAuth'
 
-export async function GET() {
+export const GET = withAuth(async (_request, { db }) => {
   try {
-    const payments = await AirtableClient.getPayments()
+    const payments = await db.getPayments()
     return NextResponse.json({ success: true, data: payments })
   } catch {
     return NextResponse.json(
@@ -11,4 +11,4 @@ export async function GET() {
       { status: 500 }
     )
   }
-}
+})

@@ -97,7 +97,9 @@ export async function POST(request: NextRequest) {
     await sendReceiptWhatsApp(parentPhone, studentName, amount, paymentId)
 
     const enrollmentDate = new Date().toISOString()
-    await AirtableClient.enrollStudent(studentId, {
+    // No user session here — Razorpay's webhook already proved authenticity via the HMAC
+    // signature above. The student it enrolls already has a branch; no branch decision needed.
+    await AirtableClient.system().enrollStudent(studentId, {
       status: 'Active',
       paymentId,
       paidAt: paidAt.toISOString(),

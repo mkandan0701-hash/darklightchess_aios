@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { formatReceiptEmail } from '@/lib/receiptGenerator'
 import { sendReceiptEmail } from '@/lib/emailSender'
 import { sendReceiptWhatsApp } from '@/lib/whatsappSender'
-import { AirtableClient } from '@/lib/airtableClient'
+import { withAuth } from '@/lib/auth/withAuth'
+import { ScopeError } from '@/lib/airtableClient'
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db, session }) => {
   try {
     const body = await req.json() as {
       studentId?: string
@@ -22,7 +23,8 @@ export async function POST(req: NextRequest) {
     }
 
     const paidAt = new Date()
-    await AirtableClient.markStudentPaidManually(studentId, { paidAt: paidAt.toISOString() })
+    // Throws ScopeError → 404 if this student belongs to another branch.
+    await db.markStudentPaidManually(studentId, { paidAt: paidAt.toISOString() })
 
     let receiptSent = false
     if (parentEmail && typeof amount === 'number') {
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest) {
       receiptSent = true
     }
 
-    console.log('[MARK PAID MANUAL]', { studentId, studentName })
+    console.log('[MARK PAID MANUAL]', { studentId, studentName, by: session.email })
 
     return NextResponse.json({
       success: true,
@@ -51,7 +53,10 @@ export async function POST(req: NextRequest) {
       paidAt: paidAt.toISOString(),
     })
   } catch (err) {
+    // Re-thrown so withAuth's catch turns it into a 404 — a cross-branch record id must not
+    // surface as a generic 500 here, which would leak that the record exists but is denied.
+    if (err instanceof ScopeError) throw err
     console.error('[MARK PAID ERROR]', err)
     return NextResponse.json({ error: 'Failed to mark student as paid' }, { status: 500 })
   }
-}
+})

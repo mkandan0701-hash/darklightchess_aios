@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import StatCard from '@/components/StatCard'
 import RecentActivity from '@/components/RecentActivity'
 import ActionItems from '@/components/ActionItems'
-import type { DashboardStats } from '@/lib/types'
+import type { DashboardStatsResponse } from '@/lib/types'
 import { formatCurrency, getGreeting } from '@/lib/utils'
 import Link from 'next/link'
+import { useSession } from '@/components/SessionProvider'
 
 function LeadsIcon() {
   return (
@@ -45,13 +46,14 @@ function OverdueIcon() {
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [stats, setStats] = useState<DashboardStatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const { session } = useSession()
 
   useEffect(() => {
     fetch('/api/clickup/stats')
       .then((r) => r.json())
-      .then((d: { success: boolean; data: DashboardStats }) => {
+      .then((d: { success: boolean; data: DashboardStatsResponse }) => {
         if (d.success) setStats(d.data)
         setLoading(false)
       })
@@ -63,7 +65,7 @@ export default function DashboardPage() {
       {/* Greeting */}
       <div>
         <h1 className="text-2xl font-bold text-primary">
-          {getGreeting()}, Manikandan! 👋
+          {getGreeting()}, {session.name}! 👋
         </h1>
         <p className="text-gray-500 text-sm mt-1">
           Here&apos;s what&apos;s happening at Darklight Chess Academy today.
@@ -98,6 +100,34 @@ export default function DashboardPage() {
           color="error"
         />
       </div>
+
+      {/* Per-branch breakdown — superadmin, all-branches view only */}
+      {stats?.byBranch && stats.byBranch.length > 0 && (
+        <div className="card">
+          <h3 className="mb-4">By Branch</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {stats.byBranch.map((b) => (
+              <div key={b.branch || '(unassigned)'} className="rounded-xl border border-gray-200 p-4">
+                <p className="text-sm font-semibold text-primary mb-2">{b.branchName}</p>
+                <dl className="space-y-1 text-xs text-gray-500">
+                  <div className="flex justify-between">
+                    <dt>Students</dt>
+                    <dd className="font-medium text-textDark">{b.activeStudents}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Revenue (mo)</dt>
+                    <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenue)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Overdue</dt>
+                    <dd className="font-medium text-textDark">{b.overduePayments}</dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Activity + Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">

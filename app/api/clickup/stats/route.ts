@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
-import { AirtableClient } from '@/lib/airtableClient'
+import { withAuth } from '@/lib/auth/withAuth'
 
-export async function GET() {
+// Returns DashboardStatsResponse — for a superadmin in all-branches mode it also carries a
+// `byBranch` breakdown; for a branch admin the totals are their branch only.
+export const GET = withAuth(async (_request, { db }) => {
   try {
-    const stats = await AirtableClient.getStats()
+    const stats = await db.getStats()
     return NextResponse.json({ success: true, data: stats })
   } catch {
     return NextResponse.json(
@@ -11,4 +13,4 @@ export async function GET() {
       { status: 500 }
     )
   }
-}
+})

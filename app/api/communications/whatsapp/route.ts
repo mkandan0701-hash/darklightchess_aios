@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { TwilioClient } from '@/lib/twilio'
+import { withAuth } from '@/lib/auth/withAuth'
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request) => {
   try {
     const body = await request.json() as {
       to: string
@@ -27,4 +28,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
