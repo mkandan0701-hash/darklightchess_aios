@@ -101,13 +101,22 @@ Two roles:
 | Role | Sees | Can mutate | Notes |
 |---|---|---|---|
 | `admin` | exactly one branch | records in that branch only | 2 of these — one per branch |
-| `superadmin` | all 3 branches + Unassigned | any record | 1 of these; home branch `BRANCH_KUNIYAMUTHUR`, which they run directly |
+| `superadmin` | all 3 branches + Unassigned | any record | 1 of these; home branch `BRANCH_SAIBABA`, which they run directly |
 
 Assignment:
 
-- Admin A → `BRANCH_SAIBABA`
-- Admin B → `BRANCH_SOWRIPALAYAM`
-- Superadmin (Manikandan) → all three; records they create default to `BRANCH_KUNIYAMUTHUR`
+- Superadmin (Manikandan) → `BRANCH_SAIBABA` (runs it directly; also where online-sourced leads and
+  students land — see below)
+- Admin A → `BRANCH_SOWRIPALAYAM`
+- Admin B → `BRANCH_KUNIYAMUTHUR`
+- Records created by the superadmin while viewing "All Branches" default to `BRANCH_SAIBABA`
+
+**Online lead intake.** Leads created through the external `lead-capture` webhook (the academy's
+website form / Meta ads integration) are always attributed to `BRANCH_SAIBABA`, regardless of which
+branch the lead would otherwise seem to belong to — see `LEAD_WEBHOOK_SECRETS` in §6. Converting such
+a lead into a student inherits the same branch (`app/api/leads/convert/route.ts`), so online-sourced
+students show up under Saibaba Colony automatically, with no separate "online" field needed. Leads
+added by hand through the dashboard still go to whichever branch the entering admin is scoped to.
 
 **The Unassigned rule.** A record with an empty `branch` field is visible to the **superadmin only**.
 This is the deliberate fail-safe: an unclassified record is never silently exposed to the wrong
@@ -183,9 +192,9 @@ Two traps:
 | `ACADEMY_USERS_B64` | no | base64 of the above, for pasting into the Vercel UI |
 | `ACADEMY_BRANCHES` | no | JSON `[{id,name}]`; falls back to the 3 built-in ids |
 | `SESSION_TTL_HOURS` | no | default `12` |
-| `LEAD_WEBHOOK_SECRETS` | no | JSON map `secret → branch id` |
-| `LEAD_WEBHOOK_SECRET` | no | legacy single secret; falls back to `BACKFILL_DEFAULT_BRANCH` |
-| `BACKFILL_DEFAULT_BRANCH` | no | default `BRANCH_KUNIYAMUTHUR` |
+| `LEAD_WEBHOOK_SECRETS` | no | JSON map `secret → branch id`. The academy's online form / Meta ads integration should send whatever secret is mapped to `BRANCH_SAIBABA` here. |
+| `LEAD_WEBHOOK_SECRET` | no | legacy single secret; falls back to `BACKFILL_DEFAULT_BRANCH`. Currently unset (empty) in production — superseded by `LEAD_WEBHOOK_SECRETS`. |
+| `BACKFILL_DEFAULT_BRANCH` | no | default `BRANCH_SAIBABA` — the superadmin's home branch, and the catch-all for anything that can't be classified |
 | `COACH_BRANCH_MAP` | no | JSON `coach name → branch id`, used by the backfill script |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | | payments |
 | `GMAIL_USER` / `GMAIL_APP_PASSWORD` | | outbound email |
@@ -199,11 +208,15 @@ Two traps:
 
 ```json
 [
-  {"email":"admin.saibaba@darklight.in","name":"Admin A","role":"admin","branch":"BRANCH_SAIBABA","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
-  {"email":"admin.sowripalayam@darklight.in","name":"Admin B","role":"admin","branch":"BRANCH_SOWRIPALAYAM","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
-  {"email":"manikandan@darklight.in","name":"Manikandan","role":"superadmin","branch":"BRANCH_KUNIYAMUTHUR","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"}
+  {"email":"admin.saibaba@darklight.in","name":"Admin A","role":"admin","branch":"BRANCH_SOWRIPALAYAM","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"admin.sowripalayam@darklight.in","name":"Admin B","role":"admin","branch":"BRANCH_KUNIYAMUTHUR","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"manikandan@darklight.in","name":"Manikandan","role":"superadmin","branch":"BRANCH_SAIBABA","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"}
 ]
 ```
+
+⚠️ The account emails here are still placeholders from initial setup and no longer match their
+branch (`admin.saibaba@…` now manages Sowripalayam, not Saibaba) — the `branch` field is what's
+authoritative, not the email string. Rename the emails once real staff accounts replace these.
 
 ⚠️ The hash is `.`-delimited, not the traditional `$`-delimited `scrypt$N$r$p$salt$hash` — Next's
 env loader runs `dotenv-expand` over every value in `.env.local` and silently strips anything
@@ -265,9 +278,9 @@ call site that forgot to pass a scope is a type error.
 2. Webhooks and cron still work unauthenticated-by-cookie:
    `curl -H "Authorization: Bearer $CRON_SECRET" localhost:3000/api/cron/daily-reminders` → 200.
 3. Log in as each of the 3 users. Wrong password → a generic error; the 6th attempt in 15 min → 429.
-4. **Read isolation** — as Admin A, `/students` `/leads` `/payments` show only Saibaba Colony rows.
-   Repeat as Admin B; confirm the two sets are disjoint.
-5. **IDOR blocked** — take a Sowripalayam student's `rec…` id and, as Admin A:
+4. **Read isolation** — as Admin A, `/students` `/leads` `/payments` show only Sowripalayam rows.
+   Repeat as Admin B (Kuniyamuthur); confirm the two sets are disjoint.
+5. **IDOR blocked** — take a Kuniyamuthur student's `rec…` id and, as Admin A:
    `curl -b 'dl_session=<A>' -X POST localhost:3000/api/mark-paid -d '{"studentId":"rec…","studentName":"x"}'`
    → **404**, the Airtable record unchanged, `[RBAC DENY]` in the server log. Repeat for
    `mark-unpaid`, `send-reminder`, `payment-link`, `schedule-demo`, `leads/convert`.
@@ -275,7 +288,7 @@ call site that forgot to pass a scope is a type error.
 7. **Cookie tampering** — flip a character in `dl_session` → 401. A token signed with a different
    `AUTH_SECRET` → rejected. An unsigned hand-crafted `{"role":"superadmin"}` → rejected.
 8. **Branch cookie is not a privilege** — as Admin A,
-   `-b 'dl_session=<A>; dl_branch=BRANCH_SOWRIPALAYAM'` → still only Saibaba Colony.
+   `-b 'dl_session=<A>; dl_branch=BRANCH_KUNIYAMUTHUR'` → still only Sowripalayam.
    `POST /api/auth/branch` as Admin A → **403**.
 9. **Superadmin** — sees all 3, the per-branch cards sum to the totals, the switcher narrows and
    restores, Analytics and Settings are reachable (Admin A gets no nav item and a 403 on the API).

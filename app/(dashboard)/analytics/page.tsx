@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell,
@@ -8,22 +8,41 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import type { Lead, Payment } from '@/lib/types'
-
-const MONTHLY_REVENUE = [
-  { month: 'Jan', revenue: 45000 },
-  { month: 'Feb', revenue: 52000 },
-  { month: 'Mar', revenue: 48000 },
-  { month: 'Apr', revenue: 61000 },
-  { month: 'May', revenue: 55000 },
-  { month: 'Jun', revenue: 68500 },
-]
+import { useIsAllBranches, useSession } from '@/components/SessionProvider'
 
 const PIE_COLORS = ['#10B981', '#F59E0B', '#DC2626']
+
+// One color per branch line, cycled if there are ever more branches than colors. 'Total' gets
+// its own fixed color below rather than one from this list, so it always reads as distinct.
+const BRANCH_LINE_COLORS = ['#FFB81C', '#10B981', '#6366F1', '#EC4899', '#0EA5E9']
+const TOTAL_LINE_COLOR = '#003366'
+const UNASSIGNED_KEY = '(unassigned)'
+
+function monthKey(dateStr: string): string {
+  const d = new Date(dateStr)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Trailing 6 calendar months, oldest first, ending on the current month. */
+function trailingMonths(): { key: string; label: string }[] {
+  const now = new Date()
+  const months: { key: string; label: string }[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    months.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+    })
+  }
+  return months
+}
 
 export default function AnalyticsPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
+  const { branches } = useSession()
+  const isAllBranches = useIsAllBranches()
 
   useEffect(() => {
     Promise.all([
@@ -54,6 +73,32 @@ export default function AnalyticsPage() {
     { name: 'Pending', value: payments.filter((p) => p.status === 'pending').length },
     { name: 'Overdue', value: payments.filter((p) => p.status === 'overdue').length },
   ]
+
+  // Real monthly turnover from Payments — /api/clickup/payments already returns only records
+  // in scope (a single branch for a narrowed superadmin view, all of them otherwise), so no
+  // extra filtering is needed here beyond bucketing by month and (when viewing all branches)
+  // by branch.
+  const revenueByMonth = useMemo(() => {
+    const months = trailingMonths()
+    const paid = payments.filter((p) => p.status === 'paid' && p.paidDate)
+
+    return months.map(({ key, label }) => {
+      const row: Record<string, string | number> = { month: label }
+      let total = 0
+      for (const p of paid) {
+        if (monthKey(p.paidDate!) !== key) continue
+        total += p.amountPaid
+        if (isAllBranches) {
+          const branchKey = p.branch || UNASSIGNED_KEY
+          row[branchKey] = (Number(row[branchKey]) || 0) + p.amountPaid
+        }
+      }
+      row.total = total
+      return row
+    })
+  }, [payments, isAllBranches])
+
+  const hasUnassignedRevenue = isAllBranches && payments.some((p) => p.status === 'paid' && !p.branch)
 
   const sourceMap: Record<string, { total: number; converted: number }> = {}
   leads.forEach((l) => {
@@ -121,20 +166,46 @@ export default function AnalyticsPage() {
 
         {/* Revenue Trend */}
         <div className="card">
-          <h3 className="mb-4">Revenue Trend (Jan – Jun 2026)</h3>
+          <h3 className="mb-4">
+            Revenue Trend (Last 6 Months){isAllBranches ? ' — All Branches' : ''}
+          </h3>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={MONTHLY_REVENUE} margin={{ left: 10, right: 20 }}>
+            <LineChart data={revenueByMonth} margin={{ left: 10, right: 20 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₹${(Number(v) / 1000).toFixed(0)}k`} />
               <Tooltip formatter={(v) => [`₹${Number(v).toLocaleString('en-IN')}`, 'Revenue']} />
               <Legend />
+              {isAllBranches &&
+                branches.map((b, i) => (
+                  <Line
+                    key={b.id}
+                    type="monotone"
+                    dataKey={b.id}
+                    name={b.name}
+                    stroke={BRANCH_LINE_COLORS[i % BRANCH_LINE_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                ))}
+              {hasUnassignedRevenue && (
+                <Line
+                  type="monotone"
+                  dataKey={UNASSIGNED_KEY}
+                  name="Unassigned"
+                  stroke="#9CA3AF"
+                  strokeDasharray="4 4"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+              )}
               <Line
                 type="monotone"
-                dataKey="revenue"
-                stroke="#FFB81C"
-                strokeWidth={2}
-                dot={{ fill: '#FFB81C', r: 4 }}
+                dataKey="total"
+                name={isAllBranches ? 'Total' : 'Revenue'}
+                stroke={TOTAL_LINE_COLOR}
+                strokeWidth={isAllBranches ? 3 : 2}
+                dot={{ fill: TOTAL_LINE_COLOR, r: 4 }}
                 activeDot={{ r: 6 }}
               />
             </LineChart>
