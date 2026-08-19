@@ -17,45 +17,73 @@ interface LeadPayload {
   notes?: string
 }
 
+// The public site posts to this route from the browser, so it needs to answer CORS
+// preflights. Origin allow-list (not the auth boundary — the secret is) as defense in depth.
+const ALLOWED_ORIGINS = ['https://www.darklightchess.com', 'https://darklightchess.com']
+
+function corsHeaders(request: NextRequest): HeadersInit {
+  const origin = request.headers.get('origin')
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, x-lead-webhook-secret',
+  }
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(request) })
+}
+
 export async function POST(request: NextRequest) {
+  const cors = corsHeaders(request)
   try {
     // The secret IS the branch claim. A `branch` field on the payload itself is never
     // trusted — otherwise any caller holding one branch's secret could write into another.
     const branch = branchForWebhookSecret(request.headers.get('x-lead-webhook-secret'))
     if (!branch) {
+      console.warn('[LEAD WEBHOOK] rejected — bad or missing secret', {
+        origin: request.headers.get('origin'),
+      })
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
-        { status: 401 }
+        { status: 401, headers: cors }
       )
     }
 
     const body = await request.json() as LeadPayload
 
     if (!body.name || body.name.trim().length < 2) {
+      console.warn('[LEAD WEBHOOK] rejected — invalid name', { branch })
       return NextResponse.json(
         { success: false, error: 'Name is required (minimum 2 characters)' },
-        { status: 400 }
+        { status: 400, headers: cors }
       )
     }
 
     if (!body.phone || !body.phone.startsWith('+')) {
+      console.warn('[LEAD WEBHOOK] rejected — invalid phone', { branch })
       return NextResponse.json(
         { success: false, error: 'Phone must be in international format (e.g. +919876543210)' },
-        { status: 400 }
+        { status: 400, headers: cors }
       )
     }
 
     if (!Array.isArray(body.available_days) || body.available_days.length === 0) {
+      console.warn('[LEAD WEBHOOK] rejected — missing available_days', { branch })
       return NextResponse.json(
         { success: false, error: 'At least one available day is required' },
-        { status: 400 }
+        { status: 400, headers: cors }
       )
     }
 
     if (!body.available_time || !body.available_time.trim()) {
+      console.warn('[LEAD WEBHOOK] rejected — missing available_time', { branch })
       return NextResponse.json(
         { success: false, error: 'Available time is required' },
-        { status: 400 }
+        { status: 400, headers: cors }
       )
     }
 
@@ -72,9 +100,10 @@ export async function POST(request: NextRequest) {
     )
 
     if (!result.ok) {
+      console.warn('[LEAD WEBHOOK] rejected by validateAndCreateLead', { branch, error: result.error })
       return NextResponse.json(
         { success: false, error: result.error },
-        { status: result.status }
+        { status: result.status, headers: cors }
       )
     }
 
@@ -106,12 +135,12 @@ export async function POST(request: NextRequest) {
       leadId: lead.id,
       message: 'Lead received successfully',
       timestamp,
-    })
+    }, { headers: cors })
   } catch (error) {
     console.error('[LEAD ERROR]', error)
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: cors }
     )
   }
 }
