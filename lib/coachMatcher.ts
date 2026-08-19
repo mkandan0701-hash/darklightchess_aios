@@ -33,13 +33,18 @@ export interface Lead {
 //   → Returns null
 
 export function findBestCoach(lead: Lead, coaches: Coach[]): Coach | null {
+  // Some intake sources (e.g. the public website form) don't collect a time slot and send the
+  // literal sentinel "Flexible" instead — match on day overlap only rather than requiring an
+  // exact available_time_slots string match, which would otherwise never match any coach.
+  const matchAnyTime = lead.available_time === 'Flexible'
+
   return (
     coaches
       .filter(coach =>
         lead.available_days.some(day => coach.available_days.includes(day))
       )
       .filter(coach =>
-        coach.available_time_slots.includes(lead.available_time)
+        matchAnyTime || coach.available_time_slots.includes(lead.available_time)
       )
       .sort((a, b) => {
         if (a.current_students !== b.current_students) {
