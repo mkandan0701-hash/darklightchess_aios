@@ -34,3 +34,8 @@ export function useSession(): SessionContextValue {
 export function useIsAllBranches(): boolean {
   return useSession().scope.branches === 'all'
 }
+
+/** True when the caller is the superadmin, regardless of which branch they're currently viewing. */
+export function useIsSuperAdmin(): boolean {
+  return useSession().session.role === 'superadmin'
+}

@@ -5,7 +5,7 @@ import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
-import { useIsAllBranches, useSession } from '@/components/SessionProvider'
+import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
@@ -38,8 +38,7 @@ export default function StudentsPage() {
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const showBranchColumn = useIsAllBranches()
-  const { session } = useSession()
-  const isSuperAdmin = session.role === 'superadmin'
+  const isSuperAdmin = useIsSuperAdmin()
 
   useEffect(() => {
     fetch('/api/clickup/students')

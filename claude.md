@@ -263,6 +263,7 @@ still works in an environment without secrets.)
 | `app/(dashboard)/analytics/layout.tsx`, `.../settings/layout.tsx` | Server-side `role === 'superadmin'` gate. The Sidebar hiding these links is UX only — these layouts are what actually stop a branch admin from loading the page by URL. |
 | `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
 | `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
+| `scripts/cleanup-orphaned-payments.js` | One-shot: deletes Payment rows whose `student_id` points at a deleted Student — retroactive fix for students deleted before `deleteStudent()` cascaded. `--apply` to write. |
 
 ---
 
@@ -342,11 +343,16 @@ call site that forgot to pass a scope is a type error.
   Acceptable at 3 users.
 - **Student/Lead/Expense delete is a hard delete**, no soft-delete field exists. Deleting a Student
   **does cascade** to every linked Payment record (`AirtableClient.deleteStudent` → `findMany` +
-  delete, paid/pending/overdue all go) — their revenue history is removed along with them, by
-  design. Delete is **superadmin-only** for all three (Students, Leads, Expenses): enforced
-  server-side via `withAuth(handler, { roles: ['superadmin'] })` on each delete route, with the
-  Delete button hidden client-side as UX only for branch admins. Guarded client-side by a
-  `window.confirm()`, not a `Modal`.
+  `deleteRecordsBatch`, paid/pending/overdue all go, batched 10-at-a-time) — their revenue history
+  is removed along with them, by design. The Payment lookup is deliberately unscoped
+  (`findMany(..., applyScope: false)`) so it isn't silently narrowed by a superadmin's `dl_branch`
+  cookie; it still can't catch a Payment whose `student_id` was never correctly linked in the
+  first place (the pre-existing "unreliable join" case above) — `scripts/cleanup-orphaned-payments.js`
+  is the one-shot fix for any such row left behind by a student deleted before this cascade existed.
+  Delete is **superadmin-only** for all three (Students, Leads, Expenses): enforced server-side via
+  `withAuth(handler, { roles: ['superadmin'] })` on each delete route, with the Delete button hidden
+  client-side as UX only for branch admins. Guarded client-side by a `window.confirm()`, not a
+  `Modal`.
 - **`/finance` is visible to both `admin` and `superadmin`**, unlike `/analytics`/`/settings`. A
   branch admin's Net Profit there is computed only from their own branch-scoped `getStats()` result —
   the same scoping every other page already relies on — so this doesn't expose whole-business figures

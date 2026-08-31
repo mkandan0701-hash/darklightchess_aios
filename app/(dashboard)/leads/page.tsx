@@ -5,7 +5,7 @@ import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import type { Lead, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
-import { useIsAllBranches, useSession } from '@/components/SessionProvider'
+import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
 const DEFAULT_COACH = { id: 'C1', name: 'Manikandan', email: 'manikandan@darklight.com' }
@@ -79,8 +79,7 @@ export default function LeadsPage() {
   const [convertError, setConvertError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const showBranchColumn = useIsAllBranches()
-  const { session } = useSession()
-  const isSuperAdmin = session.role === 'superadmin'
+  const isSuperAdmin = useIsSuperAdmin()
 
   useEffect(() => {
     fetch('/api/clickup/leads')

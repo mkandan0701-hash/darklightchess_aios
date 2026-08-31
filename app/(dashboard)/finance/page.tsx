@@ -5,7 +5,7 @@ import Table from '@/components/Table'
 import StatCard from '@/components/StatCard'
 import type { Expense, DashboardStatsResponse, Column } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { useIsAllBranches, useSession } from '@/components/SessionProvider'
+import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
 const CATEGORY_OPTIONS = ['Rent', 'Salaries', 'Utilities', 'Equipment', 'Marketing', 'Other']
@@ -53,8 +53,7 @@ export default function FinancePage() {
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const showBranchColumn = useIsAllBranches()
-  const { session } = useSession()
-  const isSuperAdmin = session.role === 'superadmin'
+  const isSuperAdmin = useIsSuperAdmin()
 
   useEffect(() => {
     Promise.all([

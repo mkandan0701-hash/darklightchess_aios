@@ -107,6 +107,23 @@ async function deleteRecord(table: string, recordId: string): Promise<void> {
   }
 }
 
+// Airtable's delete endpoint accepts up to 10 record ids per request via repeated `records[]`
+// query params. Used for cascades (e.g. every Payment tied to a deleted Student) so deletion
+// time doesn't scale linearly with one HTTP round-trip per record.
+async function deleteRecordsBatch(table: string, recordIds: string[]): Promise<void> {
+  for (let i = 0; i < recordIds.length; i += 10) {
+    const chunk = recordIds.slice(i, i + 10)
+    const url = new URL(tableUrl(table))
+    for (const id of chunk) url.searchParams.append('records[]', id)
+
+    const res = await fetch(url, { method: 'DELETE', headers: getHeaders() })
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`Airtable batch delete in ${table} failed: ${res.status} ${errText}`)
+    }
+  }
+}
+
 // --- Airtable record mappers ---
 // Base schema (Students/Leads/Payments tables) uses snake_case field names that predate
 // this client; classesPerWeek/duration/grade/paymentLink/invoiceId on Students, studentId/
@@ -298,14 +315,21 @@ export class AirtableClient {
   }
 
   /**
-   * Scoped multi-record lookup by an extra formula term, e.g. every Payment tied to a student
-   * being deleted. Paginated like `list()`, but returns raw `AirtableRecord`s since callers
-   * here only need `.id`.
+   * Multi-record lookup by an extra formula term, e.g. every Payment tied to a student being
+   * deleted. Paginated like `list()`, but returns raw `AirtableRecord`s since callers here only
+   * need `.id`.
+   *
+   * `applyScope` defaults to true (every other read in this class is scoped). Pass false only
+   * when the caller has already authorized the specific target via `assertInScope` and is now
+   * cascading to *that record's* dependents — a superadmin narrowed to one branch via the
+   * dl_branch cookie is still a superadmin, and narrowing is a UI convenience, not a smaller
+   * grant. Scoping the cascade would silently skip dependents outside the narrowed view (e.g.
+   * Unassigned-branch rows), leaving them behind as if the delete had succeeded.
    */
-  private async findMany(table: string, extraFormula: string): Promise<AirtableRecord[]> {
+  private async findMany(table: string, extraFormula: string, applyScope = true): Promise<AirtableRecord[]> {
     if (!AirtableClient.isConfigured()) return []
 
-    const scopeFormula = branchFormula(this.scope)
+    const scopeFormula = applyScope ? branchFormula(this.scope) : null
     const formula = scopeFormula ? `AND(${scopeFormula}, ${extraFormula})` : extraFormula
 
     const out: AirtableRecord[] = []
@@ -746,6 +770,10 @@ export class AirtableClient {
    * Hard delete, cascading to every linked Payment record — deletes the student's revenue
    * history too. Payments go first: if this fails partway, re-running deleteStudent just finds
    * fewer (or zero) remaining payments and picks up where it left off.
+   *
+   * The Payment lookup is deliberately unscoped (`applyScope: false`) — see findMany's doc
+   * comment. Scoping it to the caller's possibly-narrowed branch view would leave some of the
+   * student's Payments behind, exactly the orphaned-revenue bug this cascade exists to prevent.
    */
   async deleteStudent(studentId: string): Promise<void> {
     await this.assertInScope(TABLES.students, studentId)
@@ -756,10 +784,11 @@ export class AirtableClient {
 
     const linkedPayments = await this.findMany(
       TABLES.payments,
-      `{student_id}='${escapeFormulaString(studentId)}'`
+      `{student_id}='${escapeFormulaString(studentId)}'`,
+      false
     )
-    for (const payment of linkedPayments) {
-      await deleteRecord(TABLES.payments, payment.id)
+    if (linkedPayments.length > 0) {
+      await deleteRecordsBatch(TABLES.payments, linkedPayments.map((p) => p.id))
     }
 
     await deleteRecord(TABLES.students, studentId)
