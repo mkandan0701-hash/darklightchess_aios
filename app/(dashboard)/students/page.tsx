@@ -5,7 +5,7 @@ import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
-import { useIsAllBranches } from '@/components/SessionProvider'
+import { useIsAllBranches, useSession } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
@@ -38,6 +38,8 @@ export default function StudentsPage() {
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const showBranchColumn = useIsAllBranches()
+  const { session } = useSession()
+  const isSuperAdmin = session.role === 'superadmin'
 
   useEffect(() => {
     fetch('/api/clickup/students')
@@ -157,7 +159,7 @@ export default function StudentsPage() {
   }
 
   const handleDelete = async (student: Student) => {
-    if (!window.confirm(`Delete ${student.name}? This cannot be undone. Their payment history is kept.`)) return
+    if (!window.confirm(`Delete ${student.name}? This cannot be undone and will also delete their payment records.`)) return
     setActionLoading(`delete-${student.id}`)
     try {
       const res = await fetch('/api/clickup/students/delete', {
@@ -261,16 +263,18 @@ export default function StudentsPage() {
               {actionLoading === `paid-${row.id}` ? 'Marking...' : 'Mark Paid'}
             </button>
           )}
-          <button
-            className="btn-sm bg-error text-white hover:opacity-80 disabled:opacity-50"
-            disabled={actionLoading === `delete-${row.id}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDelete(row)
-            }}
-          >
-            {actionLoading === `delete-${row.id}` ? 'Deleting...' : 'Delete'}
-          </button>
+          {isSuperAdmin && (
+            <button
+              className="btn-sm bg-error text-white hover:opacity-80 disabled:opacity-50"
+              disabled={actionLoading === `delete-${row.id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDelete(row)
+              }}
+            >
+              {actionLoading === `delete-${row.id}` ? 'Deleting...' : 'Delete'}
+            </button>
+          )}
         </div>
       ),
     },

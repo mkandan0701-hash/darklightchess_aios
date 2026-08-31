@@ -5,7 +5,7 @@ import Table from '@/components/Table'
 import StatCard from '@/components/StatCard'
 import type { Expense, DashboardStatsResponse, Column } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { useIsAllBranches } from '@/components/SessionProvider'
+import { useIsAllBranches, useSession } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
 const CATEGORY_OPTIONS = ['Rent', 'Salaries', 'Utilities', 'Equipment', 'Marketing', 'Other']
@@ -53,6 +53,8 @@ export default function FinancePage() {
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const showBranchColumn = useIsAllBranches()
+  const { session } = useSession()
+  const isSuperAdmin = session.role === 'superadmin'
 
   useEffect(() => {
     Promise.all([
@@ -128,22 +130,24 @@ export default function FinancePage() {
     ...(showBranchColumn
       ? [{ key: 'branch', label: 'Branch', render: (v: unknown) => branchName(v as string) } as Column<Expense>]
       : []),
-    {
-      key: 'id',
-      label: 'Actions',
-      render: (_, row) => (
-        <button
-          className="btn-sm bg-error text-white hover:opacity-80 disabled:opacity-50"
-          disabled={actionLoading === `delete-${row.id}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            handleDelete(row)
-          }}
-        >
-          {actionLoading === `delete-${row.id}` ? 'Deleting...' : 'Delete'}
-        </button>
-      ),
-    },
+    ...(isSuperAdmin
+      ? [{
+          key: 'id',
+          label: 'Actions',
+          render: (_: unknown, row: Expense) => (
+            <button
+              className="btn-sm bg-error text-white hover:opacity-80 disabled:opacity-50"
+              disabled={actionLoading === `delete-${row.id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDelete(row)
+              }}
+            >
+              {actionLoading === `delete-${row.id}` ? 'Deleting...' : 'Delete'}
+            </button>
+          ),
+        } as Column<Expense>]
+      : []),
   ]
 
   return (

@@ -37,13 +37,13 @@ All 5 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/auth/google` | GET | Google OAuth consent redirect | **superadmin** |
 | `/api/auth/google/callback` | GET | Prints `GOOGLE_REFRESH_TOKEN` | **superadmin** |
 | `/api/clickup/students` | GET/POST | List / create students (Airtable) | session, branch-scoped |
-| `/api/clickup/students/delete` | POST | Hard-delete a student (Payments untouched) | session, scope-asserted |
+| `/api/clickup/students/delete` | POST | Hard-delete a student, cascading to all their Payments | **superadmin**, scope-asserted |
 | `/api/clickup/leads` | GET/POST | List / create leads | session, branch-scoped |
-| `/api/clickup/leads/delete` | POST | Hard-delete a lead | session, scope-asserted |
+| `/api/clickup/leads/delete` | POST | Hard-delete a lead | **superadmin**, scope-asserted |
 | `/api/clickup/payments` | GET | List payments | session, branch-scoped |
 | `/api/clickup/stats` | GET | Dashboard aggregates incl. `monthlyExpenses`/`netProfit` (+ `byBranch` for superadmin) | session, branch-scoped |
 | `/api/expenses` | GET/POST | List / create expenses | session, branch-scoped |
-| `/api/expenses/delete` | POST | Hard-delete an expense | session, scope-asserted |
+| `/api/expenses/delete` | POST | Hard-delete an expense | **superadmin**, scope-asserted |
 | `/api/leads/convert` | POST | Lead → Student; student inherits the lead's branch | session, scope-asserted |
 | `/api/mark-paid` | POST | Mark paid (student- or payment-driven) + receipt email/WhatsApp | session, scope-asserted |
 | `/api/mark-unpaid` | POST | Revert to pending (student- or payment-driven) | session, scope-asserted |
@@ -341,8 +341,12 @@ call site that forgot to pass a scope is a type error.
 - **No audit log.** `[RBAC DENY]` plus `by: session.email` on action logs is the entire trail.
   Acceptable at 3 users.
 - **Student/Lead/Expense delete is a hard delete**, no soft-delete field exists. Deleting a Student
-  does **not** cascade to their Payment records — preserves historical revenue/analytics data even
-  after the student is removed. Guarded client-side by a `window.confirm()`, not a `Modal`.
+  **does cascade** to every linked Payment record (`AirtableClient.deleteStudent` → `findMany` +
+  delete, paid/pending/overdue all go) — their revenue history is removed along with them, by
+  design. Delete is **superadmin-only** for all three (Students, Leads, Expenses): enforced
+  server-side via `withAuth(handler, { roles: ['superadmin'] })` on each delete route, with the
+  Delete button hidden client-side as UX only for branch admins. Guarded client-side by a
+  `window.confirm()`, not a `Modal`.
 - **`/finance` is visible to both `admin` and `superadmin`**, unlike `/analytics`/`/settings`. A
   branch admin's Net Profit there is computed only from their own branch-scoped `getStats()` result —
   the same scoping every other page already relies on — so this doesn't expose whole-business figures

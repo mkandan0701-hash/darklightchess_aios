@@ -298,6 +298,36 @@ export class AirtableClient {
   }
 
   /**
+   * Scoped multi-record lookup by an extra formula term, e.g. every Payment tied to a student
+   * being deleted. Paginated like `list()`, but returns raw `AirtableRecord`s since callers
+   * here only need `.id`.
+   */
+  private async findMany(table: string, extraFormula: string): Promise<AirtableRecord[]> {
+    if (!AirtableClient.isConfigured()) return []
+
+    const scopeFormula = branchFormula(this.scope)
+    const formula = scopeFormula ? `AND(${scopeFormula}, ${extraFormula})` : extraFormula
+
+    const out: AirtableRecord[] = []
+    let offset: string | undefined
+    do {
+      const url = new URL(tableUrl(table))
+      url.searchParams.set('pageSize', '100')
+      url.searchParams.set('filterByFormula', formula)
+      if (offset) url.searchParams.set('offset', offset)
+
+      const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' })
+      if (!res.ok) return out
+
+      const data = (await res.json()) as { records: AirtableRecord[]; offset?: string }
+      out.push(...data.records)
+      offset = data.offset
+    } while (offset)
+
+    return out
+  }
+
+  /**
    * Ownership check for the write path. Read scoping stops a caller listing another branch's
    * records; it does nothing about a mutation carrying a record id in its body.
    *
@@ -712,13 +742,26 @@ export class AirtableClient {
     return mapRecordToExpense(record)
   }
 
-  /** Hard delete. No cascade — a deleted student's Payment history is kept for revenue analytics. */
+  /**
+   * Hard delete, cascading to every linked Payment record — deletes the student's revenue
+   * history too. Payments go first: if this fails partway, re-running deleteStudent just finds
+   * fewer (or zero) remaining payments and picks up where it left off.
+   */
   async deleteStudent(studentId: string): Promise<void> {
     await this.assertInScope(TABLES.students, studentId)
     if (!AirtableClient.isConfigured()) {
       console.log(`[AIRTABLE MOCK] deleteStudent`, { studentId })
       return
     }
+
+    const linkedPayments = await this.findMany(
+      TABLES.payments,
+      `{student_id}='${escapeFormulaString(studentId)}'`
+    )
+    for (const payment of linkedPayments) {
+      await deleteRecord(TABLES.payments, payment.id)
+    }
+
     await deleteRecord(TABLES.students, studentId)
   }
 

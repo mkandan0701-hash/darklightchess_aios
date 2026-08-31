@@ -21,4 +21,4 @@ export const POST = withAuth(async (req, { db, session }) => {
     console.error('[DELETE STUDENT ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to delete student' }, { status: 500 })
   }
-})
+}, { roles: ['superadmin'] })
