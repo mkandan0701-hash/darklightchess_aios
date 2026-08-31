@@ -1,6 +1,6 @@
 # Darklight Chess Academy AIOS
 
-**Internal operations dashboard + 5 automation workflows for a 3-branch chess academy.**
+**Internal operations dashboard + 6 automation workflows for a 3-branch chess academy.**
 
 Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airtable is the system of record.**
 
@@ -11,7 +11,7 @@ Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airta
 
 ## 1. Current state
 
-All 5 automation workflows are **built and live**. This is not a greenfield project.
+All 6 automation workflows are **built and live**. This is not a greenfield project.
 
 ### Pages (9)
 
@@ -27,7 +27,7 @@ All 5 automation workflows are **built and live**. This is not a greenfield proj
 | `/settings` | API connection status, JSON export | **superadmin only** |
 | `/login` | Credential login | public |
 
-### API routes (27)
+### API routes (28)
 
 | Route | Method | Purpose | Auth |
 |---|---|---|---|
@@ -57,6 +57,7 @@ All 5 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/webhooks/lead-capture` | POST | External form → lead + coach assign + welcome | per-branch shared secret |
 | `/api/webhooks/payment` | POST | Razorpay payment → enroll + receipt | Razorpay HMAC |
 | `/api/cron/daily-reminders` | GET | 09:00 daily overdue sweep | `Bearer CRON_SECRET` |
+| `/api/cron/monthly-reset` | GET | 09:00 on the 1st: new Payment due per student, `payment_status` → pending | `Bearer CRON_SECRET` |
 
 ### Workflows
 
@@ -67,6 +68,7 @@ All 5 automation workflows are **built and live**. This is not a greenfield proj
 | 3 | Payment link generation | `/api/payment-link` | live |
 | 4 | Payment received processing | `/api/webhooks/payment` | live |
 | 5 | Daily overdue reminders | `/api/cron/daily-reminders` | live (`vercel.json` cron) |
+| 6 | Monthly billing reset | `/api/cron/monthly-reset` | live (`vercel.json` cron) |
 
 ---
 
@@ -357,3 +359,10 @@ call site that forgot to pass a scope is a type error.
   branch admin's Net Profit there is computed only from their own branch-scoped `getStats()` result —
   the same scoping every other page already relies on — so this doesn't expose whole-business figures
   to a branch admin.
+- **Monthly billing arrears stack, by design.** `AirtableClient.runMonthlyReset()` (the
+  `/api/cron/monthly-reset` cron, 1st of the month) always *creates* a new Payment due for every
+  student rather than mutating an existing one — a student who never paid last month ends up with
+  two open dues (last month's stays overdue, a new one is due this month), so "Overdue Payments" and
+  "Total Due" on `/payments` correctly grow with unpaid months rather than silently merging them into
+  one. Idempotent per student per calendar month (skips if a Payment already has a `dueDate` in the
+  current month), so a retried cron run never double-bills.

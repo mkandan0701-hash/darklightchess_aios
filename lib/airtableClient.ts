@@ -637,6 +637,60 @@ export class AirtableClient {
     await patchRecord(TABLES.payments, paymentId, { status: 'overdue' })
   }
 
+  /**
+   * Monthly billing rollover — invoked by the 1st-of-month cron (`app/api/cron/monthly-reset`).
+   * Every student gets a fresh Payment due this month, created (not mutated) so last month's
+   * record — whatever it ended up as, paid or still-unpaid — stays intact as history. A student
+   * who never paid last month therefore ends up with two open dues: last month's stays overdue,
+   * and a new one is due this month. That's deliberate (confirmed with the academy) — arrears
+   * should stack, not silently roll forward and hide how many months are actually owed.
+   *
+   * Idempotent per student per calendar month: skipped if a Payment already exists with a
+   * `dueDate` in the current month, so a retried or re-triggered cron run never double-bills.
+   */
+  async runMonthlyReset(): Promise<{ created: number; skipped: number }> {
+    const [students, payments] = await Promise.all([this.getStudents(), this.getPayments()])
+
+    if (!AirtableClient.isConfigured()) {
+      console.log(`[AIRTABLE MOCK] runMonthlyReset`, { students: students.length })
+      return { created: 0, skipped: 0 }
+    }
+
+    const now = new Date()
+    const currentYM = now.getUTCFullYear() * 12 + now.getUTCMonth()
+    const dueDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().split('T')[0]
+
+    let created = 0
+    let skipped = 0
+
+    for (const student of students) {
+      const alreadyDueThisMonth = payments.some((p) => {
+        if (p.studentId !== student.id || !p.dueDate) return false
+        const due = new Date(p.dueDate)
+        if (isNaN(due.getTime())) return false
+        return due.getUTCFullYear() * 12 + due.getUTCMonth() === currentYM
+      })
+
+      if (alreadyDueThisMonth) {
+        skipped++
+        continue
+      }
+
+      await createRecord(TABLES.payments, {
+        student_id: student.id,
+        student_name: student.name,
+        amount: student.monthlyFee,
+        due_date: dueDate,
+        status: 'pending',
+        branch: student.branch ?? '',
+      })
+      await patchRecord(TABLES.students, student.id, { payment_status: 'pending' })
+      created++
+    }
+
+    return { created, skipped }
+  }
+
   async createStudent(data: {
     name: string
     email: string
