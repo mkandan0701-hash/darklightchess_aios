@@ -77,6 +77,7 @@ export default function LeadsPage() {
   const [convertForm, setConvertForm] = useState(EMPTY_CONVERT_FORM)
   const [convertSubmitting, setConvertSubmitting] = useState(false)
   const [convertError, setConvertError] = useState('')
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
   const showBranchColumn = useIsAllBranches()
 
   useEffect(() => {
@@ -188,6 +189,28 @@ export default function LeadsPage() {
     }
   }
 
+  const handleDelete = async (lead: Lead) => {
+    if (!window.confirm(`Delete ${lead.name}? This cannot be undone.`)) return
+    setActionLoading(`delete-${lead.id}`)
+    try {
+      const res = await fetch('/api/clickup/leads/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: lead.id }),
+      })
+      const result = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || !result.success) {
+        alert(result.error ?? 'Failed to delete lead')
+        return
+      }
+      setLeads((prev) => prev.filter((l) => l.id !== lead.id))
+    } catch {
+      alert('Failed to delete lead. Please try again.')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const filtered = useMemo(() => {
     return leads.filter((l) => {
       const matchesStatus = filterStatus === 'all' || l.status === filterStatus
@@ -265,6 +288,16 @@ export default function LeadsPage() {
               Convert
             </button>
           )}
+          <button
+            className="btn-sm bg-error text-white hover:opacity-80 disabled:opacity-50"
+            disabled={actionLoading === `delete-${row.id}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDelete(row)
+            }}
+          >
+            {actionLoading === `delete-${row.id}` ? 'Deleting...' : 'Delete'}
+          </button>
         </div>
       ),
     },

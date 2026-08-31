@@ -104,6 +104,8 @@ export async function POST(request: NextRequest) {
       paymentId,
       paidAt: paidAt.toISOString(),
       enrollmentDate,
+      amount,
+      studentName,
     })
 
     console.log('[PAYMENT PROCESSED]', { studentId, paymentId, amount, email: parentEmail })

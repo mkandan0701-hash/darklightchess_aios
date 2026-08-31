@@ -13,20 +13,21 @@ Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airta
 
 All 5 automation workflows are **built and live**. This is not a greenfield project.
 
-### Pages (8)
+### Pages (9)
 
 | Path | Purpose | Who can see it |
 |---|---|---|
-| `/` | Dashboard — 4 stat cards, quick actions | admin + superadmin |
-| `/students` | Student list, add, payment link, mark paid/unpaid | admin + superadmin |
-| `/leads` | Lead funnel, add, book demo, convert to student | admin + superadmin |
+| `/` | Dashboard — stat cards (leads, students, revenue, overdue, expenses, net profit), quick actions | admin + superadmin |
+| `/students` | Student list, add, delete, payment link, mark paid/unpaid | admin + superadmin |
+| `/leads` | Lead funnel, add, delete, book demo, convert to student | admin + superadmin |
 | `/payments` | Payment list, remind, mark paid/unpaid | admin + superadmin |
+| `/finance` | Expense entry/delete, Income/Expense/Net Profit summary (current month, per-branch for superadmin) | admin + superadmin |
 | `/communications` | Email / WhatsApp composer | admin + superadmin |
-| `/analytics` | Funnel, revenue, source conversion charts | **superadmin only** |
+| `/analytics` | Funnel, revenue, source conversion, income-vs-expense charts | **superadmin only** |
 | `/settings` | API connection status, JSON export | **superadmin only** |
 | `/login` | Credential login | public |
 
-### API routes (23)
+### API routes (27)
 
 | Route | Method | Purpose | Auth |
 |---|---|---|---|
@@ -36,12 +37,16 @@ All 5 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/auth/google` | GET | Google OAuth consent redirect | **superadmin** |
 | `/api/auth/google/callback` | GET | Prints `GOOGLE_REFRESH_TOKEN` | **superadmin** |
 | `/api/clickup/students` | GET/POST | List / create students (Airtable) | session, branch-scoped |
+| `/api/clickup/students/delete` | POST | Hard-delete a student (Payments untouched) | session, scope-asserted |
 | `/api/clickup/leads` | GET/POST | List / create leads | session, branch-scoped |
+| `/api/clickup/leads/delete` | POST | Hard-delete a lead | session, scope-asserted |
 | `/api/clickup/payments` | GET | List payments | session, branch-scoped |
-| `/api/clickup/stats` | GET | Dashboard aggregates (+ `byBranch` for superadmin) | session, branch-scoped |
+| `/api/clickup/stats` | GET | Dashboard aggregates incl. `monthlyExpenses`/`netProfit` (+ `byBranch` for superadmin) | session, branch-scoped |
+| `/api/expenses` | GET/POST | List / create expenses | session, branch-scoped |
+| `/api/expenses/delete` | POST | Hard-delete an expense | session, scope-asserted |
 | `/api/leads/convert` | POST | Lead → Student; student inherits the lead's branch | session, scope-asserted |
-| `/api/mark-paid` | POST | Manual paid + receipt email/WhatsApp | session, scope-asserted |
-| `/api/mark-unpaid` | POST | Revert to pending | session, scope-asserted |
+| `/api/mark-paid` | POST | Mark paid (student- or payment-driven) + receipt email/WhatsApp | session, scope-asserted |
+| `/api/mark-unpaid` | POST | Revert to pending (student- or payment-driven) | session, scope-asserted |
 | `/api/send-reminder` | POST | Overdue reminder email/WhatsApp | session, scope-asserted |
 | `/api/payment-link` | POST | Razorpay invoice + email/WhatsApp | session, scope-asserted |
 | `/api/schedule-demo` | POST | Google Meet event + confirmations | session, scope-asserted |
@@ -158,7 +163,7 @@ another branch's record ids by probing status codes. The real denial is logged s
 
 ## 5. Data model
 
-Airtable base `AIRTABLE_BASE_ID`, three tables. Field names are **snake_case in Airtable** and
+Airtable base `AIRTABLE_BASE_ID`, four tables. Field names are **snake_case in Airtable** and
 camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 
 | Table | Fields |
@@ -166,6 +171,13 @@ camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 | **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
 | **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `created_at`, **`branch`** |
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
+| **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
+
+**Expenses is a manually-created table** (there's no `add-expenses-field.js` equivalent to
+`add-branch-field.js`) — before this feature ships, create it in the base with `description` (text),
+`amount` (number), `category` (single line text or singleSelect), `date` (date), and a `branch`
+singleSelect with the same 3 branch-id choices pre-created as the other tables, for the same
+typecast-safety reason as below.
 
 `branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
 display names. Pre-creating those choices is what stops `typecast: true` from inventing a
@@ -302,10 +314,15 @@ call site that forgot to pass a scope is a type error.
 
 ## 9. Known issues and deliberate non-goals
 
-- **`Payment.student_id` is unreliable.** `mapRecordToPayment` reads a `student_id` field that the
-  original migration never created, and `daily-reminders` joins on it. Payments that cannot be
-  resolved to a student are left **Unassigned** by the backfill rather than guessed. New payments get
-  their branch at creation time.
+- **Legacy `Payment.student_id` rows may still be unreliable.** Before this feature, no code path ever
+  wrote a Payments row at all — `markStudentPaidManually` and `enrollStudent` (Razorpay webhook) both
+  only ever patched `Students.payment_status`, so `computeStats`/Analytics (which read exclusively
+  from Payments) never saw manual marks or real payments survive a refresh, and every historical
+  Payment row was entered by hand. Both paths now find-or-create a properly-linked Payments row
+  (`AirtableClient.recordPayment`, used by `markStudentPaidManually` and `enrollStudent`); every row
+  written going forward carries a correct `student_id`, so the join is self-healing over time without
+  needing to trust or migrate old hand-entered rows. Payments that still can't be resolved to a
+  student are left **Unassigned** by the backfill script rather than guessed.
 - **Reads are now paginated.** They previously capped silently at Airtable's first 100 records.
   Records that were invisible before will now appear — that is a fix, not a regression.
 - **`schedule-demo` writes the lead status `'Demo Scheduled'`** while the type union expects
@@ -323,3 +340,10 @@ call site that forgot to pass a scope is a type error.
   only.
 - **No audit log.** `[RBAC DENY]` plus `by: session.email` on action logs is the entire trail.
   Acceptable at 3 users.
+- **Student/Lead/Expense delete is a hard delete**, no soft-delete field exists. Deleting a Student
+  does **not** cascade to their Payment records — preserves historical revenue/analytics data even
+  after the student is removed. Guarded client-side by a `window.confirm()`, not a `Modal`.
+- **`/finance` is visible to both `admin` and `superadmin`**, unlike `/analytics`/`/settings`. A
+  branch admin's Net Profit there is computed only from their own branch-scoped `getStats()` result —
+  the same scoping every other page already relies on — so this doesn't expose whole-business figures
+  to a branch admin.

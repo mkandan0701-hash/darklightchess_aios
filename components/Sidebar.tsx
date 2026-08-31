@@ -50,6 +50,15 @@ function CreditCardIcon() {
   )
 }
 
+function FinanceIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  )
+}
+
 function BarChartIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -83,6 +92,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/students', label: 'Students', icon: <UsersIcon /> },
   { href: '/leads', label: 'Leads', icon: <TrendingUpIcon /> },
   { href: '/payments', label: 'Payments', icon: <CreditCardIcon /> },
+  { href: '/finance', label: 'Finance', icon: <FinanceIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <BarChartIcon />, roles: ['superadmin'] },
   { href: '/communications', label: 'Communications', icon: <MessageIcon /> },
   { href: '/settings', label: 'Settings', icon: <SettingsIcon />, roles: ['superadmin'] },

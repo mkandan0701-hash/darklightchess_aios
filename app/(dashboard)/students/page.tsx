@@ -156,6 +156,28 @@ export default function StudentsPage() {
     }
   }
 
+  const handleDelete = async (student: Student) => {
+    if (!window.confirm(`Delete ${student.name}? This cannot be undone. Their payment history is kept.`)) return
+    setActionLoading(`delete-${student.id}`)
+    try {
+      const res = await fetch('/api/clickup/students/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: student.id }),
+      })
+      const result = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || !result.success) {
+        alert(result.error ?? 'Failed to delete student')
+        return
+      }
+      setStudents((prev) => prev.filter((s) => s.id !== student.id))
+    } catch {
+      alert('Failed to delete student. Please try again.')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const filtered = useMemo(() => {
     return students.filter((s) => {
       const matchesSearch =
@@ -239,6 +261,16 @@ export default function StudentsPage() {
               {actionLoading === `paid-${row.id}` ? 'Marking...' : 'Mark Paid'}
             </button>
           )}
+          <button
+            className="btn-sm bg-error text-white hover:opacity-80 disabled:opacity-50"
+            disabled={actionLoading === `delete-${row.id}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDelete(row)
+            }}
+          >
+            {actionLoading === `delete-${row.id}` ? 'Deleting...' : 'Delete'}
+          </button>
         </div>
       ),
     },

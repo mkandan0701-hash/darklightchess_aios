@@ -39,6 +39,7 @@ export default function PaymentsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          paymentId: payment.id,
           studentId: payment.studentId,
           studentName: payment.studentName,
           parentEmail: student?.email,
@@ -102,7 +103,7 @@ export default function PaymentsPage() {
       const res = await fetch('/api/mark-unpaid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: payment.studentId }),
+        body: JSON.stringify({ paymentId: payment.id, studentId: payment.studentId }),
       })
       const result = await res.json() as { success?: boolean; error?: string }
       if (!res.ok || !result.success) {

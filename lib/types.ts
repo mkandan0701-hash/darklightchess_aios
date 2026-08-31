@@ -47,10 +47,21 @@ export interface Payment {
   branch?: string
 }
 
+export interface Expense {
+  id: string
+  description: string
+  amount: number
+  category: string
+  date: string
+  branch?: string
+}
+
 export interface DashboardStats {
   totalLeads: number
   activeStudents: number
   monthlyRevenue: number
+  monthlyExpenses: number
+  netProfit: number
   overduePayments: number
   leadsThisMonth: number
   studentsChange?: number

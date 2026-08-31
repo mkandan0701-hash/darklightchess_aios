@@ -7,7 +7,7 @@ import {
   LineChart, Line,
   ResponsiveContainer,
 } from 'recharts'
-import type { Lead, Payment } from '@/lib/types'
+import type { Lead, Payment, Expense } from '@/lib/types'
 import { useIsAllBranches, useSession } from '@/components/SessionProvider'
 
 const PIE_COLORS = ['#10B981', '#F59E0B', '#DC2626']
@@ -40,6 +40,7 @@ function trailingMonths(): { key: string; label: string }[] {
 export default function AnalyticsPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
   const { branches } = useSession()
   const isAllBranches = useIsAllBranches()
@@ -48,13 +49,16 @@ export default function AnalyticsPage() {
     Promise.all([
       fetch('/api/clickup/leads').then((r) => r.json()),
       fetch('/api/clickup/payments').then((r) => r.json()),
+      fetch('/api/expenses').then((r) => r.json()),
     ])
-      .then(([leadsData, paymentsData]: [
+      .then(([leadsData, paymentsData, expensesData]: [
         { success: boolean; data: Lead[] },
-        { success: boolean; data: Payment[] }
+        { success: boolean; data: Payment[] },
+        { success: boolean; data: Expense[] }
       ]) => {
         if (leadsData.success) setLeads(leadsData.data)
         if (paymentsData.success) setPayments(paymentsData.data)
+        if (expensesData.success) setExpenses(expensesData.data)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -99,6 +103,25 @@ export default function AnalyticsPage() {
   }, [payments, isAllBranches])
 
   const hasUnassignedRevenue = isAllBranches && payments.some((p) => p.status === 'paid' && !p.branch)
+
+  // Income vs Expenses vs Net Profit — /api/expenses already returns only records in scope,
+  // same as payments above, so this just buckets by month.
+  const netProfitByMonth = useMemo(() => {
+    const months = trailingMonths()
+    const paid = payments.filter((p) => p.status === 'paid' && p.paidDate)
+
+    return months.map(({ key, label }) => {
+      let income = 0
+      for (const p of paid) {
+        if (monthKey(p.paidDate!) === key) income += p.amountPaid
+      }
+      let expenseTotal = 0
+      for (const e of expenses) {
+        if (e.date && monthKey(e.date) === key) expenseTotal += e.amount
+      }
+      return { month: label, income, expenses: expenseTotal, netProfit: income - expenseTotal }
+    })
+  }, [payments, expenses])
 
   const sourceMap: Record<string, { total: number; converted: number }> = {}
   leads.forEach((l) => {
@@ -208,6 +231,23 @@ export default function AnalyticsPage() {
                 dot={{ fill: TOTAL_LINE_COLOR, r: 4 }}
                 activeDot={{ r: 6 }}
               />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Income vs Expenses / Net Profit */}
+        <div className="card">
+          <h3 className="mb-4">Income vs Expenses (Last 6 Months)</h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={netProfitByMonth} margin={{ left: 10, right: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₹${(Number(v) / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v: number, name: string) => [`₹${v.toLocaleString('en-IN')}`, name]} />
+              <Legend />
+              <Line type="monotone" dataKey="income" name="Income" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#DC2626" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="netProfit" name="Net Profit" stroke={TOTAL_LINE_COLOR} strokeWidth={3} dot={{ fill: TOTAL_LINE_COLOR, r: 4 }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

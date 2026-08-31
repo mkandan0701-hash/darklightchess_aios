@@ -45,6 +45,24 @@ function OverdueIcon() {
   )
 }
 
+function ExpenseIcon() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M20 12H4" />
+    </svg>
+  )
+}
+
+function NetProfitIcon() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+    </svg>
+  )
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -101,6 +119,22 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Finance Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <StatCard
+          label="Expenses (this month)"
+          value={loading ? '—' : formatCurrency(stats?.monthlyExpenses ?? 0)}
+          icon={<ExpenseIcon />}
+          color="error"
+        />
+        <StatCard
+          label="Net Profit (this month)"
+          value={loading ? '—' : formatCurrency(stats?.netProfit ?? 0)}
+          icon={<NetProfitIcon />}
+          color="success"
+        />
+      </div>
+
       {/* Per-branch breakdown — superadmin, all-branches view only */}
       {stats?.byBranch && stats.byBranch.length > 0 && (
         <div className="card">
@@ -117,6 +151,14 @@ export default function DashboardPage() {
                   <div className="flex justify-between">
                     <dt>Revenue (mo)</dt>
                     <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenue)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Expenses (mo)</dt>
+                    <dd className="font-medium text-textDark">{formatCurrency(b.monthlyExpenses)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Net Profit (mo)</dt>
+                    <dd className="font-medium text-textDark">{formatCurrency(b.netProfit)}</dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Overdue</dt>
@@ -154,6 +196,9 @@ export default function DashboardPage() {
           </Link>
           <Link href="/payments" className="btn-outline">
             View Overdue Payments
+          </Link>
+          <Link href="/finance" className="btn-outline">
+            Manage Expenses
           </Link>
         </div>
       </div>

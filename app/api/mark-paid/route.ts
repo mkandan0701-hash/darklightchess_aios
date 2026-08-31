@@ -9,6 +9,7 @@ export const POST = withAuth(async (req, { db, session }) => {
   try {
     const body = await req.json() as {
       studentId?: string
+      paymentId?: string
       studentName?: string
       parentEmail?: string
       parentPhone?: string
@@ -16,15 +17,26 @@ export const POST = withAuth(async (req, { db, session }) => {
       coachName?: string
     }
 
-    const { studentId, studentName, parentEmail, parentPhone, amount, coachName } = body
+    const { studentId, paymentId, studentName, parentEmail, parentPhone, amount, coachName } = body
 
-    if (!studentId || !studentName) {
+    if (!studentName || (!studentId && !paymentId)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+    if (typeof amount !== 'number' || amount <= 0) {
+      return NextResponse.json({ error: 'A positive amount is required to record the payment' }, { status: 400 })
     }
 
     const paidAt = new Date()
-    // Throws ScopeError → 404 if this student belongs to another branch.
-    await db.markStudentPaidManually(studentId, { paidAt: paidAt.toISOString() })
+    // Throws ScopeError → 404 if the record belongs to another branch. `paymentId` present
+    // (Payments page, already has the real Payment record) → the reliable direct path, and
+    // `studentId` there may legitimately be blank (legacy rows with no reliable join) — the
+    // sync to Student.payment_status is best-effort and simply skipped when absent. Otherwise
+    // (Students page) → find-or-create the Payment record for this student, which does need it.
+    if (paymentId) {
+      await db.markPaymentPaid(paymentId, { amountPaid: amount, paidDate: paidAt.toISOString(), studentId })
+    } else if (studentId) {
+      await db.markStudentPaidManually(studentId, { paidAt: paidAt.toISOString(), amount, studentName })
+    }
 
     let receiptSent = false
     if (parentEmail && typeof amount === 'number') {
