@@ -211,9 +211,10 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
   }
 
-  const monthlyRevenue = payments
-    .filter((p) => p.status === 'paid' && p.paidDate && inCurrentMonth(p.paidDate))
-    .reduce((sum, p) => sum + p.amountPaid, 0)
+  // Expected recurring revenue: every enrolled student's monthly fee, regardless of whether
+  // they've paid yet. Reflects a new student immediately rather than waiting on a Payments
+  // row to be marked paid — see claude.md discussion of `computeStats`.
+  const monthlyRevenue = students.reduce((sum, s) => sum + s.monthlyFee, 0)
 
   const monthlyExpenses = expenses
     .filter((e) => e.date && inCurrentMonth(e.date))
@@ -735,6 +736,20 @@ export class AirtableClient {
       payment_status: 'pending',
       created_at: enrolledDate,
       grade: data.grade ?? '',
+      branch: data.branch,
+    })
+
+    // Without this, a newly enrolled student has no row in Payments at all — invisible to
+    // monthlyRevenue/overduePayments and every Finance/Analytics figure (all computed solely
+    // from Payments, see computeStats) until either the 1st-of-month reset cron runs or someone
+    // manually marks them paid. Creating the first due here mirrors what runMonthlyReset does
+    // for every existing student each month.
+    await createRecord(TABLES.payments, {
+      student_id: record.id,
+      student_name: data.name,
+      amount: data.monthlyFee,
+      due_date: enrolledDate,
+      status: 'pending',
       branch: data.branch,
     })
 
