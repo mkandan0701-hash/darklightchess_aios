@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
+import { isValidBatchId } from '@/lib/batches'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -24,7 +25,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { name, email, phone, classesPerWeek, duration, monthlyFee, grade, batchTiming } = body as Record<string, unknown>
+  const { name, email, phone, classesPerWeek, duration, monthlyFee, grade, batchId } = body as Record<string, unknown>
 
   if (typeof name !== 'string' || name.trim().length < 2) {
     return NextResponse.json({ success: false, error: 'Name is required (minimum 2 characters)' }, { status: 400 })
@@ -41,6 +42,9 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
   if (!Number.isFinite(Number(monthlyFee)) || Number(monthlyFee) <= 0) {
     return NextResponse.json({ success: false, error: 'Monthly fee must be a positive number' }, { status: 400 })
   }
+  if (typeof batchId === 'string' && batchId.trim() && !isValidBatchId(batchId.trim())) {
+    return NextResponse.json({ success: false, error: 'Invalid batch selected' }, { status: 400 })
+  }
 
   try {
     // The branch is never taken from the request body. An admin gets their own branch; a
@@ -53,7 +57,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
       duration: typeof duration === 'string' && duration.trim() ? duration.trim() : '45 min',
       monthlyFee: Number(monthlyFee),
       grade: typeof grade === 'string' ? grade.trim() : undefined,
-      batchTiming: typeof batchTiming === 'string' && batchTiming.trim() ? batchTiming.trim() : undefined,
+      batchId: typeof batchId === 'string' && batchId.trim() ? batchId.trim() : undefined,
       branch: branchForNewRecord(scope, session),
     })
 

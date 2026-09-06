@@ -18,7 +18,7 @@ export interface Student {
   paymentStatus: 'paid' | 'pending' | 'overdue'
   enrolledDate: string
   grade?: string
-  batchTiming?: string
+  batchId?: string
   branch?: string
 }
 

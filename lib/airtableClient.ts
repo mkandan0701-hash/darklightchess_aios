@@ -3,6 +3,7 @@ import type { Scope } from './auth/types'
 import { canAccessBranch, systemScope } from './auth/rbac'
 import { ALL_BRANCHES } from './auth/cookies'
 import { branchName, isValidBranchId } from './branches'
+import { batchScheduleMismatchMessage } from './batches'
 
 const BASE_URL = 'https://api.airtable.com/v0'
 
@@ -35,6 +36,14 @@ export class ScopeError extends Error {
   constructor(public readonly reason: 'not_found' | 'forbidden' | 'lookup_failed') {
     super(`Record is not accessible in this scope: ${reason}`)
     this.name = 'ScopeError'
+  }
+}
+
+/** Thrown when attendance is marked for a date that doesn't match the student's batch schedule. */
+export class BatchScheduleError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'BatchScheduleError'
   }
 }
 
@@ -146,7 +155,7 @@ function mapRecordToStudent(record: AirtableRecord): Student {
     paymentStatus: (selectName(f.payment_status) || 'pending') as Student['paymentStatus'],
     enrolledDate: (f.created_at as string) ?? '',
     grade: (f.grade as string) || undefined,
-    batchTiming: (f.batch_timing as string) || undefined,
+    batchId: (f.batch_timing as string) || undefined,
     branch: selectName(f.branch) || undefined,
   }
 }
@@ -397,6 +406,24 @@ export class AirtableClient {
       // the endpoint into an id oracle.
       throw new ScopeError('forbidden')
     }
+  }
+
+  /**
+   * Single-field targeted read for the attendance-schedule check in createAttendance. Does not
+   * throw on failure — the caller already ran assertInScope immediately before this, so a
+   * transient read failure here should skip the secondary schedule check rather than fail the
+   * whole attendance write. Duplicates assertInScope's own fetch of the same record; that
+   * duplication already exists as the codebase's accepted pattern (see getRecordBranch).
+   */
+  private async getStudentBatchId(studentId: string): Promise<string | undefined> {
+    if (!AirtableClient.isConfigured()) return undefined
+    const res = await fetch(tableUrl(TABLES.students, `/${encodeURIComponent(studentId)}`), {
+      headers: getHeaders(),
+      cache: 'no-store',
+    })
+    if (!res.ok) return undefined
+    const record = (await res.json()) as AirtableRecord
+    return (record.fields.batch_timing as string) || undefined
   }
 
   // --- Reads ---
@@ -720,7 +747,7 @@ export class AirtableClient {
     duration: string
     monthlyFee: number
     grade?: string
-    batchTiming?: string
+    batchId?: string
     branch: string
   }): Promise<Student> {
     const enrolledDate = new Date().toISOString().split('T')[0]
@@ -741,7 +768,7 @@ export class AirtableClient {
         paymentStatus: 'pending',
         enrolledDate,
         grade: data.grade,
-        batchTiming: data.batchTiming,
+        batchId: data.batchId,
         branch: data.branch,
       }
       console.log(`[AIRTABLE MOCK] Created student`, student)
@@ -758,7 +785,7 @@ export class AirtableClient {
       payment_status: 'pending',
       created_at: enrolledDate,
       grade: data.grade ?? '',
-      batch_timing: data.batchTiming ?? '',
+      batch_timing: data.batchId ?? '',
       branch: data.branch,
     })
 
@@ -891,6 +918,13 @@ export class AirtableClient {
     }
 
     await this.assertInScope(TABLES.students, data.studentId)
+
+    // Opt-in: a student with no batch set skips this check entirely rather than blocking.
+    const studentBatchId = await this.getStudentBatchId(data.studentId)
+    if (studentBatchId) {
+      const mismatch = batchScheduleMismatchMessage(studentBatchId, data.date)
+      if (mismatch) throw new BatchScheduleError(mismatch)
+    }
 
     // A plain {date}='...' comparison against Airtable's `date` field type silently matches
     // nothing — the field evaluates to a datetime value in formulas, not the display string.

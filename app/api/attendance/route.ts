@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
-import { ScopeError } from '@/lib/airtableClient'
+import { BatchScheduleError, ScopeError } from '@/lib/airtableClient'
 
 export const GET = withAuth(async (_request, { db }) => {
   try {
@@ -55,6 +55,9 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
 
     return NextResponse.json({ success: true, data: attendance })
   } catch (err) {
+    if (err instanceof BatchScheduleError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: 400 })
+    }
     // A foreign-branch studentId surfaces as 404 via withAuth's ScopeError handling, not a 500.
     if (err instanceof ScopeError) throw err
     console.error('[CREATE ATTENDANCE ERROR]', err)

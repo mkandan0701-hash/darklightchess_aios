@@ -7,6 +7,7 @@ import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
+import { BATCHES } from '@/lib/batches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
 
@@ -25,7 +26,7 @@ const EMPTY_FORM = {
   duration: '45 min',
   monthlyFee: '',
   grade: '',
-  batchTiming: '',
+  batchId: '',
 }
 
 export default function StudentsPage() {
@@ -432,14 +433,17 @@ export default function StudentsPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch Timing</label>
-            <input
-              type="text"
-              value={form.batchTiming}
-              onChange={(e) => setForm({ ...form, batchTiming: e.target.value })}
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch</label>
+            <select
+              value={form.batchId}
+              onChange={(e) => setForm({ ...form, batchId: e.target.value })}
               className="input-field"
-              placeholder="Mon/Wed/Fri 4:00 PM"
-            />
+            >
+              <option value="">Select a batch…</option>
+              {BATCHES.map((b) => (
+                <option key={b.id} value={b.id}>{b.label}</option>
+              ))}
+            </select>
           </div>
 
           <button

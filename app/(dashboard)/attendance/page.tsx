@@ -7,6 +7,7 @@ import type { Attendance, Student, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
+import { batchLabel, batchScheduleMismatchMessage, dayPatternLabel, timeSlotLabel } from '@/lib/batches'
 
 const EMPTY_FORM = {
   studentId: '',
@@ -30,6 +31,7 @@ export default function AttendancePage() {
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
@@ -61,6 +63,11 @@ export default function AttendancePage() {
   }, [students])
 
   const selectedStudent = form.studentId ? studentsById.get(form.studentId) : undefined
+
+  const batchMismatch = useMemo(() => {
+    if (!selectedStudent?.batchId || !form.date) return null
+    return batchScheduleMismatchMessage(selectedStudent.batchId, form.date)
+  }, [selectedStudent, form.date])
 
   const handleAddAttendance = async () => {
     setFormError('')
@@ -129,8 +136,18 @@ export default function AttendancePage() {
     [attendance]
   )
 
+  const filteredSorted = useMemo(
+    () => sorted.filter((a) => !search || a.studentName.toLowerCase().includes(search.toLowerCase())),
+    [sorted, search]
+  )
+
+  const searchedStudents = useMemo(
+    () => students.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase())),
+    [students, search]
+  )
+
   const reportRows = useMemo<ReportRow[]>(() => {
-    return students.map((s) => {
+    return searchedStudents.map((s) => {
       const rows = attendance.filter((a) => a.studentId === s.id)
       const presentCount = rows.filter((a) => a.present).length
       return {
@@ -144,7 +161,7 @@ export default function AttendancePage() {
         paymentStatus: s.paymentStatus,
       }
     })
-  }, [students, attendance])
+  }, [searchedStudents, attendance])
 
   const reportByBranch = useMemo(() => {
     if (!showBranchColumn) return null
@@ -161,9 +178,14 @@ export default function AttendancePage() {
     { key: 'date', label: 'Date', render: (v) => formatDate(String(v)) },
     { key: 'studentName', label: 'Student' },
     {
-      key: 'studentId',
-      label: 'Batch Timing',
-      render: (v) => studentsById.get(String(v))?.batchTiming || '—',
+      key: 'batchDay',
+      label: 'Batch',
+      render: (_, row) => dayPatternLabel(studentsById.get(row.studentId)?.batchId),
+    },
+    {
+      key: 'batchTime',
+      label: 'Timing',
+      render: (_, row) => timeSlotLabel(studentsById.get(row.studentId)?.batchId),
     },
     {
       key: 'present',
@@ -242,10 +264,28 @@ export default function AttendancePage() {
         <div>
           <h1>Attendance</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {loading ? 'Loading...' : `${sorted.length} record${sorted.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading...' : `${filteredSorted.length} record${filteredSorted.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <button className="btn-primary" onClick={() => setShowAddModal(true)}>+ Mark Attendance</button>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <svg
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Search by student name..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="input-field pl-9"
+        />
       </div>
 
       {/* Report — attendance & homework alongside fee status */}
@@ -268,7 +308,7 @@ export default function AttendancePage() {
       {/* Table */}
       <Table
         columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={sorted as unknown as Record<string, unknown>[]}
+        data={filteredSorted as unknown as Record<string, unknown>[]}
         loading={loading}
         emptyMessage="No attendance records yet."
       />
@@ -301,7 +341,7 @@ export default function AttendancePage() {
               ))}
             </select>
             <p className="text-xs text-gray-500 mt-1">
-              Batch: {selectedStudent?.batchTiming || '—'}
+              Batch: {batchLabel(selectedStudent?.batchId)}
             </p>
           </div>
 
@@ -313,6 +353,9 @@ export default function AttendancePage() {
               onChange={(e) => setForm({ ...form, date: e.target.value })}
               className="input-field"
             />
+            {batchMismatch && (
+              <p className="text-xs text-error mt-1">{batchMismatch}</p>
+            )}
           </div>
 
           <div>
@@ -365,9 +408,9 @@ export default function AttendancePage() {
 
           <button
             onClick={handleAddAttendance}
-            disabled={submitting || !form.studentId || !form.date}
+            disabled={submitting || !form.studentId || !form.date || !!batchMismatch}
             className={`btn-primary w-full justify-center ${
-              submitting || !form.studentId || !form.date ? 'opacity-60 cursor-not-allowed' : ''
+              submitting || !form.studentId || !form.date || !!batchMismatch ? 'opacity-60 cursor-not-allowed' : ''
             }`}
           >
             {submitting ? 'Saving...' : 'Save Attendance'}

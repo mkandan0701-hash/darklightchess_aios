@@ -186,13 +186,23 @@ singleSelect with the same 3 branch-id choices pre-created as the other tables, 
 typecast-safety reason as below.
 
 **Attendance is created programmatically** by `scripts/add-attendance-table.js` (idempotent — run it
-once against the base). `Student.batch_timing` (free text, e.g. "Mon/Wed/Fri 4:00 PM") is added by
-`scripts/add-batch-timing-field.js`; it's set only at student-creation time — there is no
-student-edit feature for it or any other Student field yet. `createAttendance()` **upserts**: a
-second submission for the same `student_id` + `date` patches the existing row (via `findOne`) rather
-than creating a duplicate, so attendance stays one row per student per day even if it's corrected
-later. Checkbox fields deserialize as `true` or **absent** (never `false`) when unchecked — the
-mapper treats missing as `false`.
+once against the base). `Student.batch_timing` is added by `scripts/add-batch-timing-field.js`; it's
+set only at student-creation time — there is no student-edit feature for it or any other Student
+field yet. `createAttendance()` **upserts**: a second submission for the same `student_id` + `date`
+patches the existing row (via `findOne`) rather than creating a duplicate, so attendance stays one
+row per student per day even if it's corrected later. Checkbox fields deserialize as `true` or
+**absent** (never `false`) when unchecked — the mapper treats missing as `false`.
+
+**`batch_timing` holds one of a fixed 9-batch catalog's codes, not free text.** `lib/batches.ts`
+defines 3 day-patterns (Mon/Wed/Fri, Tue/Thu/Sat, Weekend = Sat & Sun) × 3 time-slots (5–6, 6–7,
+7–8 PM), e.g. `MWF_5_6`, giving ids like `MWF_5_6`…`WEEKEND_7_8`. The Airtable field is still plain
+`singleLineText` (no schema change from the free-text version — only the values written into it
+changed) and the TypeScript property is `Student.batchId`, not `batchTiming`, to make clear it's a
+code, not prose; `isValidBatchId` whitelists it server-side the same way `isValidBranchId` does for
+branches. `AirtableClient.createAttendance` rejects (`BatchScheduleError` → 400) marking attendance
+on a date whose weekday isn't one of the student's batch's days — skipped entirely for a student
+with no `batchId` set. The catalog is hardcoded (not env-configurable like branches) since a new
+batch is a source edit, not a per-deployment difference.
 
 `branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
 display names. Pre-creating those choices is what stops `typecast: true` from inventing a
