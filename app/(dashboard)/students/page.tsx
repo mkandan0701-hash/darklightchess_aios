@@ -7,7 +7,7 @@ import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
-import { BATCHES } from '@/lib/batches'
+import { BATCHES, batchLabel } from '@/lib/batches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
 
@@ -39,6 +39,10 @@ export default function StudentsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null)
+  const [editBatchId, setEditBatchId] = useState('')
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editError, setEditError] = useState('')
   const showBranchColumn = useIsAllBranches()
   const isSuperAdmin = useIsSuperAdmin()
 
@@ -159,6 +163,39 @@ export default function StudentsPage() {
     }
   }
 
+  const handleOpenEditBatch = (student: Student) => {
+    setEditingStudent(student)
+    setEditBatchId(student.batchId ?? '')
+    setEditError('')
+  }
+
+  const handleSaveBatch = async () => {
+    if (!editingStudent) return
+    setEditError('')
+    setEditSubmitting(true)
+    try {
+      const res = await fetch('/api/clickup/students/update-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: editingStudent.id, batchId: editBatchId }),
+      })
+      const result = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || !result.success) {
+        setEditError(result.error ?? 'Failed to update batch')
+        return
+      }
+      const savedBatchId = editBatchId || undefined
+      setStudents((prev) =>
+        prev.map((s) => (s.id === editingStudent.id ? { ...s, batchId: savedBatchId } : s))
+      )
+      setEditingStudent(null)
+    } catch {
+      setEditError('Failed to update batch. Please try again.')
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
   const handleDelete = async (student: Student) => {
     if (!window.confirm(`Delete ${student.name}? This cannot be undone and will also delete their payment records.`)) return
     setActionLoading(`delete-${student.id}`)
@@ -213,6 +250,11 @@ export default function StudentsPage() {
       render: (v) => formatDate(String(v)),
     },
     {
+      key: 'batchId',
+      label: 'Batch',
+      render: (v) => batchLabel(v as string | undefined),
+    },
+    {
       key: 'paymentStatus',
       label: 'Status',
       render: (v) => (
@@ -262,6 +304,17 @@ export default function StudentsPage() {
               }}
             >
               {actionLoading === `paid-${row.id}` ? 'Marking...' : 'Mark Paid'}
+            </button>
+          )}
+          {isSuperAdmin && (
+            <button
+              className="btn-sm bg-white border border-gray-300 text-textDark hover:bg-gray-50"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleOpenEditBatch(row)
+              }}
+            >
+              Edit Batch
             </button>
           )}
           {isSuperAdmin && (
@@ -456,6 +509,45 @@ export default function StudentsPage() {
             }`}
           >
             {submitting ? 'Adding...' : 'Add Student'}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Edit Batch Modal — superadmin only; the one editable Student field */}
+      <Modal
+        isOpen={!!editingStudent}
+        onClose={() => {
+          setEditingStudent(null)
+          setEditError('')
+        }}
+        title={`Edit Batch — ${editingStudent?.name ?? ''}`}
+        size="sm"
+      >
+        <div className="space-y-4">
+          {editError && (
+            <p className="text-sm text-error bg-red-50 border border-red-200 rounded-lg px-3 py-2">{editError}</p>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch</label>
+            <select
+              value={editBatchId}
+              onChange={(e) => setEditBatchId(e.target.value)}
+              className="input-field"
+            >
+              <option value="">No batch</option>
+              {BATCHES.map((b) => (
+                <option key={b.id} value={b.id}>{b.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={handleSaveBatch}
+            disabled={editSubmitting}
+            className={`btn-primary w-full justify-center ${editSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
+          >
+            {editSubmitting ? 'Saving...' : 'Save Batch'}
           </button>
         </div>
       </Modal>

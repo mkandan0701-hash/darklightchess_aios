@@ -3,7 +3,7 @@ import type { Scope } from './auth/types'
 import { canAccessBranch, systemScope } from './auth/rbac'
 import { ALL_BRANCHES } from './auth/cookies'
 import { branchName, isValidBranchId } from './branches'
-import { batchScheduleMismatchMessage } from './batches'
+import { batchScheduleMismatchMessage, isValidBatchId } from './batches'
 
 const BASE_URL = 'https://api.airtable.com/v0'
 
@@ -804,6 +804,25 @@ export class AirtableClient {
     })
 
     return mapRecordToStudent(record)
+  }
+
+  /**
+   * The one exception to "every Student field is create-only" — narrowly scoped to just the
+   * batch, since there's otherwise no way to correct a mistaken batch selection after a student
+   * is created. Superadmin-only is enforced at the route level
+   * (app/api/clickup/students/update-batch/route.ts), not here. `batchId` may be `''` to clear
+   * the student's batch back to unset.
+   */
+  async updateStudentBatch(studentId: string, batchId: string): Promise<void> {
+    if (batchId && !isValidBatchId(batchId)) {
+      throw new Error(`Refusing to set unknown batch "${batchId}"`)
+    }
+    await this.assertInScope(TABLES.students, studentId)
+    if (!AirtableClient.isConfigured()) {
+      console.log(`[AIRTABLE MOCK] updateStudentBatch`, { studentId, batchId })
+      return
+    }
+    await patchRecord(TABLES.students, studentId, { batch_timing: batchId })
   }
 
   async createLead(data: {
