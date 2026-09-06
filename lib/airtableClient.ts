@@ -1,4 +1,4 @@
-import type { BranchStats, DashboardStats, DashboardStatsResponse, Expense, Lead, Payment, Student } from './types'
+import type { Attendance, BranchStats, DashboardStats, DashboardStatsResponse, Expense, Lead, Payment, Student } from './types'
 import type { Scope } from './auth/types'
 import { canAccessBranch, systemScope } from './auth/rbac'
 import { ALL_BRANCHES } from './auth/cookies'
@@ -11,6 +11,7 @@ const TABLES = {
   leads: 'Leads',
   payments: 'Payments',
   expenses: 'Expenses',
+  attendance: 'Attendance',
 } as const
 
 function getHeaders(): Record<string, string> {
@@ -145,6 +146,7 @@ function mapRecordToStudent(record: AirtableRecord): Student {
     paymentStatus: (selectName(f.payment_status) || 'pending') as Student['paymentStatus'],
     enrolledDate: (f.created_at as string) ?? '',
     grade: (f.grade as string) || undefined,
+    batchTiming: (f.batch_timing as string) || undefined,
     branch: selectName(f.branch) || undefined,
   }
 }
@@ -188,6 +190,20 @@ function mapRecordToExpense(record: AirtableRecord): Expense {
     amount: Number(f.amount) || 0,
     category: (f.category as string) || 'Other',
     date: (f.date as string) ?? '',
+    branch: selectName(f.branch) || undefined,
+  }
+}
+
+// Airtable omits an unchecked checkbox from the response entirely (undefined, not false).
+function mapRecordToAttendance(record: AirtableRecord): Attendance {
+  const f = record.fields
+  return {
+    id: record.id,
+    studentId: (f.student_id as string) ?? '',
+    studentName: (f.student_name as string) ?? '',
+    date: (f.date as string) ?? '',
+    present: f.present === true,
+    homeworkDone: f.homework_done === true,
     branch: selectName(f.branch) || undefined,
   }
 }
@@ -399,6 +415,10 @@ export class AirtableClient {
 
   async getExpenses(): Promise<Expense[]> {
     return this.list(TABLES.expenses, mapRecordToExpense)
+  }
+
+  async getAttendance(): Promise<Attendance[]> {
+    return this.list(TABLES.attendance, mapRecordToAttendance)
   }
 
   async getStats(): Promise<DashboardStatsResponse> {
@@ -700,6 +720,7 @@ export class AirtableClient {
     duration: string
     monthlyFee: number
     grade?: string
+    batchTiming?: string
     branch: string
   }): Promise<Student> {
     const enrolledDate = new Date().toISOString().split('T')[0]
@@ -720,6 +741,7 @@ export class AirtableClient {
         paymentStatus: 'pending',
         enrolledDate,
         grade: data.grade,
+        batchTiming: data.batchTiming,
         branch: data.branch,
       }
       console.log(`[AIRTABLE MOCK] Created student`, student)
@@ -736,6 +758,7 @@ export class AirtableClient {
       payment_status: 'pending',
       created_at: enrolledDate,
       grade: data.grade ?? '',
+      batch_timing: data.batchTiming ?? '',
       branch: data.branch,
     })
 
@@ -836,6 +859,70 @@ export class AirtableClient {
   }
 
   /**
+   * Upsert: re-marking a student for a date they already have a row for corrects that row
+   * instead of accumulating a duplicate. `assertInScope` on the student id guards against a
+   * caller attributing attendance to a foreign-branch student — the UI's own dropdown is
+   * already scoped, but the API must not trust that.
+   */
+  async createAttendance(data: {
+    studentId: string
+    studentName: string
+    date: string
+    present: boolean
+    homeworkDone: boolean
+    branch: string
+  }): Promise<Attendance> {
+    if (!isValidBranchId(data.branch)) {
+      throw new Error(`Refusing to create an attendance record in unknown branch "${data.branch}"`)
+    }
+
+    if (!AirtableClient.isConfigured()) {
+      const attendance: Attendance = {
+        id: `at-mock-${Date.now()}`,
+        studentId: data.studentId,
+        studentName: data.studentName,
+        date: data.date,
+        present: data.present,
+        homeworkDone: data.homeworkDone,
+        branch: data.branch,
+      }
+      console.log(`[AIRTABLE MOCK] Created attendance`, attendance)
+      return attendance
+    }
+
+    await this.assertInScope(TABLES.students, data.studentId)
+
+    // A plain {date}='...' comparison against Airtable's `date` field type silently matches
+    // nothing — the field evaluates to a datetime value in formulas, not the display string.
+    // DATETIME_FORMAT coerces it to a comparable ISO date string first.
+    const existing = await this.findOne(
+      TABLES.attendance,
+      `AND({student_id}='${escapeFormulaString(data.studentId)}', DATETIME_FORMAT({date}, 'YYYY-MM-DD')='${escapeFormulaString(data.date)}')`
+    )
+
+    const fields = {
+      present: data.present,
+      homework_done: data.homeworkDone,
+    }
+
+    if (existing) {
+      await this.assertInScope(TABLES.attendance, existing.id)
+      await patchRecord(TABLES.attendance, existing.id, fields)
+      return mapRecordToAttendance({ id: existing.id, fields: { ...existing.fields, ...fields } })
+    }
+
+    const record = await createRecord(TABLES.attendance, {
+      student_id: data.studentId,
+      student_name: data.studentName,
+      date: data.date,
+      branch: data.branch,
+      ...fields,
+    })
+
+    return mapRecordToAttendance(record)
+  }
+
+  /**
    * Hard delete, cascading to every linked Payment record — deletes the student's revenue
    * history too. Payments go first: if this fails partway, re-running deleteStudent just finds
    * fewer (or zero) remaining payments and picks up where it left off.
@@ -881,17 +968,26 @@ export class AirtableClient {
     await deleteRecord(TABLES.expenses, expenseId)
   }
 
+  async deleteAttendance(attendanceId: string): Promise<void> {
+    await this.assertInScope(TABLES.attendance, attendanceId)
+    if (!AirtableClient.isConfigured()) {
+      console.log(`[AIRTABLE MOCK] deleteAttendance`, { attendanceId })
+      return
+    }
+    await deleteRecord(TABLES.attendance, attendanceId)
+  }
+
   /**
    * Explicit scope gate for routes with side effects that happen *before* the mutation —
    * sending an email, say. Without it, an out-of-scope record id would still trigger the
    * side effect on its way to the 404.
    */
-  async assertAccessible(table: 'students' | 'leads' | 'payments' | 'expenses', recordId: string): Promise<void> {
+  async assertAccessible(table: 'students' | 'leads' | 'payments' | 'expenses' | 'attendance', recordId: string): Promise<void> {
     await this.assertInScope(TABLES[table], recordId)
   }
 
   /** Reads a single record's branch, for routes that must propagate it (e.g. lead → student). */
-  async getRecordBranch(table: 'students' | 'leads' | 'payments' | 'expenses', recordId: string): Promise<string> {
+  async getRecordBranch(table: 'students' | 'leads' | 'payments' | 'expenses' | 'attendance', recordId: string): Promise<string> {
     await this.assertInScope(TABLES[table], recordId)
     if (!AirtableClient.isConfigured()) return ''
 

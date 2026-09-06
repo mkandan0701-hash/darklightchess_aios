@@ -18,6 +18,7 @@ export interface Student {
   paymentStatus: 'paid' | 'pending' | 'overdue'
   enrolledDate: string
   grade?: string
+  batchTiming?: string
   branch?: string
 }
 
@@ -53,6 +54,16 @@ export interface Expense {
   amount: number
   category: string
   date: string
+  branch?: string
+}
+
+export interface Attendance {
+  id: string
+  studentId: string
+  studentName: string
+  date: string
+  present: boolean
+  homeworkDone: boolean
   branch?: string
 }
 

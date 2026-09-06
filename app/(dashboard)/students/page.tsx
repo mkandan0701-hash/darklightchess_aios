@@ -25,6 +25,7 @@ const EMPTY_FORM = {
   duration: '45 min',
   monthlyFee: '',
   grade: '',
+  batchTiming: '',
 }
 
 export default function StudentsPage() {
@@ -428,6 +429,17 @@ export default function StudentsPage() {
                 placeholder="U12"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch Timing</label>
+            <input
+              type="text"
+              value={form.batchTiming}
+              onChange={(e) => setForm({ ...form, batchTiming: e.target.value })}
+              className="input-field"
+              placeholder="Mon/Wed/Fri 4:00 PM"
+            />
           </div>
 
           <button

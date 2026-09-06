@@ -24,7 +24,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { name, email, phone, classesPerWeek, duration, monthlyFee, grade } = body as Record<string, unknown>
+  const { name, email, phone, classesPerWeek, duration, monthlyFee, grade, batchTiming } = body as Record<string, unknown>
 
   if (typeof name !== 'string' || name.trim().length < 2) {
     return NextResponse.json({ success: false, error: 'Name is required (minimum 2 characters)' }, { status: 400 })
@@ -53,6 +53,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
       duration: typeof duration === 'string' && duration.trim() ? duration.trim() : '45 min',
       monthlyFee: Number(monthlyFee),
       grade: typeof grade === 'string' ? grade.trim() : undefined,
+      batchTiming: typeof batchTiming === 'string' && batchTiming.trim() ? batchTiming.trim() : undefined,
       branch: branchForNewRecord(scope, session),
     })
 

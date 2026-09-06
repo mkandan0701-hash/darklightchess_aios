@@ -13,12 +13,13 @@ Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airta
 
 All 6 automation workflows are **built and live**. This is not a greenfield project.
 
-### Pages (9)
+### Pages (10)
 
 | Path | Purpose | Who can see it |
 |---|---|---|
 | `/` | Dashboard — stat cards (leads, students, revenue, overdue, expenses, net profit), quick actions | admin + superadmin |
 | `/students` | Student list, add, delete, payment link, mark paid/unpaid | admin + superadmin |
+| `/attendance` | Mark daily present/absent + homework done per student (batch timing shown from the student's record); attendance/homework-vs-fee-status report, per-branch for superadmin | admin + superadmin |
 | `/leads` | Lead funnel, add, delete, book demo, convert to student | admin + superadmin |
 | `/payments` | Payment list, remind, mark paid/unpaid | admin + superadmin |
 | `/finance` | Expense entry/delete, Income/Expense/Net Profit summary (current month, per-branch for superadmin) | admin + superadmin |
@@ -27,7 +28,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/settings` | API connection status, JSON export | **superadmin only** |
 | `/login` | Credential login | public |
 
-### API routes (28)
+### API routes (30)
 
 | Route | Method | Purpose | Auth |
 |---|---|---|---|
@@ -44,6 +45,8 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/clickup/stats` | GET | Dashboard aggregates incl. `monthlyExpenses`/`netProfit` (+ `byBranch` for superadmin) | session, branch-scoped |
 | `/api/expenses` | GET/POST | List / create expenses | session, branch-scoped |
 | `/api/expenses/delete` | POST | Hard-delete an expense | **superadmin**, scope-asserted |
+| `/api/attendance` | GET/POST | List attendance / mark present-absent + homework for a student+date (upserts on repeat) | session, branch-scoped |
+| `/api/attendance/delete` | POST | Hard-delete an attendance record | **superadmin**, scope-asserted |
 | `/api/leads/convert` | POST | Lead → Student; student inherits the lead's branch | session, scope-asserted |
 | `/api/mark-paid` | POST | Mark paid (student- or payment-driven) + receipt email/WhatsApp | session, scope-asserted |
 | `/api/mark-unpaid` | POST | Revert to pending (student- or payment-driven) | session, scope-asserted |
@@ -165,21 +168,31 @@ another branch's record ids by probing status codes. The real denial is logged s
 
 ## 5. Data model
 
-Airtable base `AIRTABLE_BASE_ID`, four tables. Field names are **snake_case in Airtable** and
+Airtable base `AIRTABLE_BASE_ID`, five tables. Field names are **snake_case in Airtable** and
 camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 
 | Table | Fields |
 |---|---|
-| **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
+| **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `batch_timing`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
 | **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `created_at`, **`branch`** |
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
 | **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
+| **Attendance** | `student_id`, `student_name`, `date`, `present` (checkbox), `homework_done` (checkbox), **`branch`** |
 
 **Expenses is a manually-created table** (there's no `add-expenses-field.js` equivalent to
 `add-branch-field.js`) — before this feature ships, create it in the base with `description` (text),
 `amount` (number), `category` (single line text or singleSelect), `date` (date), and a `branch`
 singleSelect with the same 3 branch-id choices pre-created as the other tables, for the same
 typecast-safety reason as below.
+
+**Attendance is created programmatically** by `scripts/add-attendance-table.js` (idempotent — run it
+once against the base). `Student.batch_timing` (free text, e.g. "Mon/Wed/Fri 4:00 PM") is added by
+`scripts/add-batch-timing-field.js`; it's set only at student-creation time — there is no
+student-edit feature for it or any other Student field yet. `createAttendance()` **upserts**: a
+second submission for the same `student_id` + `date` patches the existing row (via `findOne`) rather
+than creating a duplicate, so attendance stays one row per student per day even if it's corrected
+later. Checkbox fields deserialize as `true` or **absent** (never `false`) when unchecked — the
+mapper treats missing as `false`.
 
 `branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
 display names. Pre-creating those choices is what stops `typecast: true` from inventing a
@@ -264,6 +277,8 @@ still works in an environment without secrets.)
 | `app/(dashboard)/layout.tsx` | Verifies session server-side, injects `SessionProvider`. |
 | `app/(dashboard)/analytics/layout.tsx`, `.../settings/layout.tsx` | Server-side `role === 'superadmin'` gate. The Sidebar hiding these links is UX only — these layouts are what actually stop a branch admin from loading the page by URL. |
 | `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
+| `scripts/add-attendance-table.js` | One-shot: creates the `Attendance` table via the Airtable Meta API. |
+| `scripts/add-batch-timing-field.js` | One-shot: adds `batch_timing` (text) to Students via the Airtable Meta API. |
 | `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
 | `scripts/cleanup-orphaned-payments.js` | One-shot: deletes Payment rows whose `student_id` points at a deleted Student — retroactive fix for students deleted before `deleteStudent()` cascaded. `--apply` to write. |
 
