@@ -101,3 +101,47 @@ export function batchScheduleMismatchMessage(batchId: string, dateStr: string): 
   if (batch.days.includes(dow)) return null
   return `This student's batch meets ${batch.dayPatternLabel} — ${DOW_NAMES[dow]} isn't a scheduled day.`
 }
+
+function toDateString(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** Every "YYYY-MM-DD" date in the given 1-indexed month that falls on one of the batch's class days. */
+export function classDatesInMonth(batchId: string, year: number, month: number): string[] {
+  const batch = batchById(batchId)
+  if (!batch) return []
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const dates: string[] = []
+  for (let day = 1; day <= daysInMonth; day++) {
+    if (batch.days.includes(new Date(year, month - 1, day).getDay())) {
+      dates.push(toDateString(year, month, day))
+    }
+  }
+  return dates
+}
+
+export interface WeekGroup {
+  label: string
+  dates: string[]
+}
+
+/**
+ * Buckets a sorted list of "YYYY-MM-DD" dates (as produced by `classDatesInMonth`, always within a
+ * single calendar month) into Sunday-start weeks. A week's day-of-month-minus-weekday is constant
+ * across all dates that fall in it, so it doubles as a cheap grouping key without needing a second
+ * Date object per date.
+ */
+export function groupDatesByWeek(dates: string[]): WeekGroup[] {
+  const groups: WeekGroup[] = []
+  let currentWeekKey: number | null = null
+  for (const dateStr of dates) {
+    const day = Number(dateStr.split('-')[2])
+    const weekKey = day - dayOfWeekFromDateString(dateStr)
+    if (currentWeekKey === null || weekKey !== currentWeekKey) {
+      currentWeekKey = weekKey
+      groups.push({ label: `Week ${groups.length + 1}`, dates: [] })
+    }
+    groups[groups.length - 1].dates.push(dateStr)
+  }
+  return groups
+}

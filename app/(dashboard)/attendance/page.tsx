@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import Table from '@/components/Table'
 import Modal from '@/components/Modal'
+import AttendanceGrid from '@/components/AttendanceGrid'
 import type { Attendance, Student, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
-import { batchLabel, batchScheduleMismatchMessage, dayPatternLabel, timeSlotLabel } from '@/lib/batches'
+import { BATCHES, batchLabel, batchScheduleMismatchMessage, dayPatternLabel, timeSlotLabel } from '@/lib/batches'
 
 const EMPTY_FORM = {
   studentId: '',
@@ -37,8 +38,20 @@ export default function AttendancePage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [savingCell, setSavingCell] = useState<string | null>(null)
+  const [gridDate, setGridDate] = useState(() => {
+    const d = new Date()
+    return { year: d.getFullYear(), month: d.getMonth() + 1 }
+  })
   const showBranchColumn = useIsAllBranches()
   const isSuperAdmin = useIsSuperAdmin()
+
+  const shiftGridMonth = (delta: number) => {
+    setGridDate(({ year, month }) => {
+      const total = year * 12 + (month - 1) + delta
+      return { year: Math.floor(total / 12), month: (total % 12) + 1 }
+    })
+  }
 
   useEffect(() => {
     Promise.all([
@@ -131,6 +144,65 @@ export default function AttendancePage() {
     }
   }
 
+  const handleGridMark = async (student: Student, date: string, present: boolean) => {
+    const key = `${student.id}-${date}`
+    setSavingCell(key)
+    try {
+      const existing = attendance.find((a) => a.studentId === student.id && a.date === date)
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: student.id,
+          studentName: student.name,
+          date,
+          present,
+          homeworkDone: existing?.homeworkDone ?? false,
+        }),
+      })
+      const result = await res.json() as { success: boolean; data?: Attendance; error?: string }
+      if (!result.success || !result.data) {
+        alert(result.error ?? 'Failed to save attendance')
+        return
+      }
+      const saved = result.data
+      setAttendance((prev) => {
+        const idx = prev.findIndex((a) => a.id === saved.id)
+        if (idx >= 0) {
+          const next = [...prev]
+          next[idx] = saved
+          return next
+        }
+        return [saved, ...prev]
+      })
+    } catch {
+      alert('Failed to save attendance. Please try again.')
+    } finally {
+      setSavingCell(null)
+    }
+  }
+
+  const handleGridUnmark = async (record: Attendance) => {
+    setSavingCell(`${record.studentId}-${record.date}`)
+    try {
+      const res = await fetch('/api/attendance/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attendanceId: record.id }),
+      })
+      const result = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || !result.success) {
+        alert(result.error ?? 'Failed to clear attendance')
+        return
+      }
+      setAttendance((prev) => prev.filter((a) => a.id !== record.id))
+    } catch {
+      alert('Failed to clear attendance. Please try again.')
+    } finally {
+      setSavingCell(null)
+    }
+  }
+
   const sorted = useMemo(
     () => [...attendance].sort((a, b) => (a.date < b.date ? 1 : -1)),
     [attendance]
@@ -145,6 +217,40 @@ export default function AttendancePage() {
     () => students.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase())),
     [students, search]
   )
+
+  const studentsByBatch = useMemo(() => {
+    const map = new Map<string, Student[]>()
+    for (const s of searchedStudents) {
+      if (!s.batchId) continue
+      if (!map.has(s.batchId)) map.set(s.batchId, [])
+      map.get(s.batchId)!.push(s)
+    }
+    return map
+  }, [searchedStudents])
+
+  const noBatchCount = useMemo(
+    () => searchedStudents.filter((s) => !s.batchId).length,
+    [searchedStudents]
+  )
+
+  const registerGroups = useMemo(() => {
+    if (!showBranchColumn) {
+      const batches = BATCHES
+        .filter((b) => studentsByBatch.has(b.id))
+        .map((b) => [b.id, studentsByBatch.get(b.id)!] as const)
+      return [{ branch: undefined as string | undefined, batches }]
+    }
+    const branchKeys = new Set<string>()
+    for (const list of studentsByBatch.values()) {
+      for (const s of list) branchKeys.add(s.branch ?? '')
+    }
+    return [...branchKeys].sort((a, b) => a.localeCompare(b)).map((branch) => {
+      const batches = BATCHES
+        .filter((b) => studentsByBatch.get(b.id)?.some((s) => (s.branch ?? '') === branch))
+        .map((b) => [b.id, studentsByBatch.get(b.id)!.filter((s) => (s.branch ?? '') === branch)] as const)
+      return { branch, batches }
+    })
+  }, [studentsByBatch, showBranchColumn])
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return searchedStudents.map((s) => {
@@ -286,6 +392,77 @@ export default function AttendancePage() {
           onChange={(e) => setSearch(e.target.value)}
           className="input-field pl-9"
         />
+      </div>
+
+      {/* Monthly Attendance Register */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h3>Monthly Attendance Register</h3>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="btn-sm bg-white border border-gray-300 hover:bg-gray-50"
+              onClick={() => shiftGridMonth(-1)}
+            >
+              ‹
+            </button>
+            <span className="text-sm font-medium text-textDark w-36 text-center">
+              {new Date(gridDate.year, gridDate.month - 1, 1).toLocaleString('default', {
+                month: 'long',
+                year: 'numeric',
+              })}
+            </span>
+            <button
+              type="button"
+              className="btn-sm bg-white border border-gray-300 hover:bg-gray-50"
+              onClick={() => shiftGridMonth(1)}
+            >
+              ›
+            </button>
+          </div>
+        </div>
+
+        {noBatchCount > 0 && (
+          <p className="text-xs text-warning bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mb-4">
+            {noBatchCount} student{noBatchCount !== 1 ? 's' : ''} {noBatchCount !== 1 ? 'have' : 'has'} no batch
+            assigned and {noBatchCount !== 1 ? "aren't" : "isn't"} shown here — set a batch on the Students page,
+            or use &ldquo;+ Mark Attendance&rdquo; above.
+          </p>
+        )}
+
+        {registerGroups.every((g) => g.batches.length === 0) ? (
+          <p className="text-sm text-gray-500">
+            No students with a batch assigned{search ? ' match your search' : ''}.
+          </p>
+        ) : (
+          <div className="space-y-6">
+            {registerGroups.map((group) => (
+              <div key={group.branch ?? 'all'}>
+                {showBranchColumn && (
+                  <p className="text-sm font-semibold text-primary mb-2">{branchName(group.branch)}</p>
+                )}
+                <div className="space-y-5">
+                  {group.batches.map(([batchId, batchStudents]) => (
+                    <div key={batchId}>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">{batchLabel(batchId)}</p>
+                      <AttendanceGrid
+                        batchId={batchId}
+                        students={batchStudents}
+                        attendance={attendance}
+                        year={gridDate.year}
+                        month={gridDate.month}
+                        isSuperAdmin={isSuperAdmin}
+                        savingCell={savingCell}
+                        onMark={handleGridMark}
+                        onUnmark={handleGridUnmark}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Report — attendance & homework alongside fee status */}
