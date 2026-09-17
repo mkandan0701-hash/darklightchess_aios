@@ -90,8 +90,7 @@ function formatTime(time: string): string {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`
 }
 
-/** "Mon/Wed/Fri" from a raw day list — used to head a register group, which has no single code. */
-export function daysLabel(days: number[]): string {
+function daysLabel(days: number[]): string {
   if (days.length === 0) return '—'
   return days.map((d) => DOW_SHORT[d]).join('/')
 }
@@ -114,17 +113,6 @@ export function batchLabel(code: string | undefined | null): string {
   const batch = parseBatch(code)
   if (!batch) return '—'
   return `${dayPatternLabel(code)} · ${timeSlotLabel(code)}`
-}
-
-/**
- * Grouping key for the attendance register: students whose batches fall on the same days share
- * one table, since the columns depend only on which weekdays are class days (their time windows
- * can still differ, which is why the register shows each student's own time per row).
- */
-export function batchDayKey(code: string | undefined | null): string | undefined {
-  const batch = parseBatch(code)
-  if (!batch) return undefined
-  return batch.days.join(',')
 }
 
 /**

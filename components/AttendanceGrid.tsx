@@ -1,12 +1,12 @@
 'use client'
 
 import type { Attendance, Student } from '@/lib/types'
-import { classDatesInMonth, groupDatesByWeek, dayOfWeekFromDateString, timeSlotLabel } from '@/lib/batches'
+import { classDatesInMonth, groupDatesByWeek, dayOfWeekFromDateString } from '@/lib/batches'
 
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface AttendanceGridProps {
-  /** Weekdays this group meets on — the students share these days, but not necessarily the time. */
+  /** Weekdays this batch meets on — every student in it shares them, and the same time window. */
   days: number[]
   students: Student[]
   attendance: Attendance[]
@@ -66,7 +66,6 @@ export default function AttendanceGrid({
         <thead>
           <tr>
             <th className="text-left py-2 pr-3 sticky left-0 bg-white">Student</th>
-            <th className="text-left py-2 pr-3 text-gray-500 font-semibold whitespace-nowrap">Time</th>
             {weeks.map((week) => (
               <th
                 key={week.label}
@@ -79,7 +78,6 @@ export default function AttendanceGrid({
           </tr>
           <tr>
             <th className="pb-2 pr-3 sticky left-0 bg-white" />
-            <th className="pb-2 pr-3" />
             {dates.map((date) => (
               <th key={date} className="text-center pb-2 px-1 text-gray-400 font-medium whitespace-nowrap">
                 {DOW_SHORT[dayOfWeekFromDateString(date)]}
@@ -94,9 +92,6 @@ export default function AttendanceGrid({
             <tr key={student.id}>
               <td className="py-1.5 pr-3 font-medium text-textDark whitespace-nowrap sticky left-0 bg-white">
                 {student.name}
-              </td>
-              <td className="py-1.5 pr-3 text-gray-500 whitespace-nowrap">
-                {timeSlotLabel(student.batchId)}
               </td>
               {dates.map((date) => {
                 const record = recordFor(student.id, date)

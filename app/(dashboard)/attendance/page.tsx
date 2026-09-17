@@ -8,7 +8,7 @@ import type { Attendance, Student, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
-import { batchLabel, batchScheduleMismatchMessage, dayPatternLabel, daysLabel, parseBatch, timeSlotLabel } from '@/lib/batches'
+import { batchLabel, batchScheduleMismatchMessage, dayPatternLabel, encodeBatch, parseBatch, timeSlotLabel } from '@/lib/batches'
 
 const EMPTY_FORM = {
   studentId: '',
@@ -218,14 +218,16 @@ export default function AttendancePage() {
     [students, search]
   )
 
-  // Batches are per-student now, so the register groups students whose batches fall on the same
-  // days — those share one table because the columns depend only on which weekdays are class days.
-  const studentsByDayKey = useMemo(() => {
+  // Batches are per-student now, so the register rebuilds them: students sharing both the same
+  // days and the same time window are one batch (5–6 PM and 6–7 PM on the same days are separate
+  // tables). Keying on the re-encoded code rather than the stored string normalizes legacy codes,
+  // so a student still on `MWF_5_6` groups with an identical custom one.
+  const studentsByBatchKey = useMemo(() => {
     const map = new Map<string, { days: number[]; students: Student[] }>()
     for (const s of searchedStudents) {
       const batch = parseBatch(s.batchId)
       if (!batch) continue
-      const key = batch.days.join(',')
+      const key = encodeBatch(batch)
       if (!map.has(key)) map.set(key, { days: batch.days, students: [] })
       map.get(key)!.students.push(s)
     }
@@ -238,11 +240,13 @@ export default function AttendancePage() {
   )
 
   const registerGroups = useMemo(() => {
-    const keys = [...studentsByDayKey.keys()].sort()
+    // Codes are "<days>@<start>-<end>" with zero-padded 24h times, so a plain sort puts each
+    // day-set together and orders its time slots earliest-first.
+    const keys = [...studentsByBatchKey.keys()].sort()
     const groupsFor = (branch?: string) =>
       keys
         .map((key) => {
-          const { days, students: members } = studentsByDayKey.get(key)!
+          const { days, students: members } = studentsByBatchKey.get(key)!
           return {
             key,
             days,
@@ -256,13 +260,13 @@ export default function AttendancePage() {
     }
 
     const branchKeys = new Set<string>()
-    for (const group of studentsByDayKey.values()) {
+    for (const group of studentsByBatchKey.values()) {
       for (const s of group.students) branchKeys.add(s.branch ?? '')
     }
     return [...branchKeys]
       .sort((a, b) => a.localeCompare(b))
       .map((branch) => ({ branch, batches: groupsFor(branch) }))
-  }, [studentsByDayKey, showBranchColumn])
+  }, [studentsByBatchKey, showBranchColumn])
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return searchedStudents.map((s) => {
@@ -456,7 +460,7 @@ export default function AttendancePage() {
                 <div className="space-y-5">
                   {group.batches.map((batch) => (
                     <div key={batch.key}>
-                      <p className="text-xs font-semibold text-gray-500 mb-1">{daysLabel(batch.days)}</p>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">{batchLabel(batch.key)}</p>
                       <AttendanceGrid
                         days={batch.days}
                         students={batch.students}

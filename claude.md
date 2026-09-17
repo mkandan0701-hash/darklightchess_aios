@@ -208,9 +208,9 @@ Codes from the **previous fixed 9-batch catalog** (3 day-patterns × 3 time-slot
 `WEEKEND_7_8`) still parse, so students created under it keep working; `parseBatch` falls back to
 that table, and re-saving such a student through the edit-batch modal rewrites them in the current
 format. Nothing writes legacy codes any more. Because batches are now per-student, the
-`/attendance` monthly register groups students by **matching day-set** (computed at render, via
-`batchDayKey`) rather than by a shared batch id — students on the same days share one table and
-each row shows its own time window, since only the days determine the table's columns.
+`/attendance` monthly register **rebuilds** them at render: students are grouped by matching days
+*and* time window (re-encoding each parsed batch, so a legacy code groups with an identical custom
+one), meaning Mon/Wed/Fri 5–6 PM and Mon/Wed/Fri 6–7 PM are two separate tables.
 
 `branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
 display names. Pre-creating those choices is what stops `typecast: true` from inventing a
