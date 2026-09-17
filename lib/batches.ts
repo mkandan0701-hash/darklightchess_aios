@@ -1,80 +1,130 @@
-// Fixed batch catalog: 3 day-patterns × 3 time-slots = 9 batches. Hardcoded rather than
-// env-configurable (unlike lib/branches.ts) — a 10th batch is a source edit, not a
-// per-deployment config the way branches (real-world locations) are.
+// A student's batch is their own set of convenient days plus a time window — not a pick from a
+// fixed catalog. The code is stored verbatim in Students.batch_timing (an existing free-text
+// Airtable field) as "<days>@<start>-<end>", e.g. "1,4@18:00-19:00" = Mon & Thu, 6–7 PM.
+//
+// Codes written before custom batches existed (the old 9-entry catalog: "MWF_5_6" … "WEEKEND_7_8")
+// still parse, so students created back then keep working and are converted to the new format the
+// next time their batch is edited. Nothing writes the legacy format any more.
 //
 // Zero I/O, zero Node-only APIs — safe to import from client components and server code alike,
 // which is why the day-of-week check lives here rather than being duplicated per call site.
 
-export interface Batch {
-  /** Stored verbatim in Students.batch_timing (an existing free-text Airtable field). */
-  id: string
-  dayPatternLabel: string
-  /** Date.getDay() values this batch meets on: 0=Sun..6=Sat. */
+export interface BatchSchedule {
+  /** Date.getDay() values this batch meets on, sorted ascending: 0=Sun..6=Sat. */
   days: number[]
-  timeSlotLabel: string
+  /** "HH:MM", 24-hour. */
   startTime: string
   endTime: string
-  label: string
 }
 
-interface DayPattern {
-  id: string
+export interface WeekGroup {
   label: string
-  days: number[]
+  dates: string[]
 }
-
-interface TimeSlot {
-  id: string
-  label: string
-  start: string
-  end: string
-}
-
-const DAY_PATTERNS: DayPattern[] = [
-  { id: 'MWF', label: 'Mon/Wed/Fri', days: [1, 3, 5] },
-  { id: 'TTS', label: 'Tue/Thu/Sat', days: [2, 4, 6] },
-  { id: 'WEEKEND', label: 'Weekend (Sat & Sun)', days: [0, 6] },
-]
-
-const TIME_SLOTS: TimeSlot[] = [
-  { id: '5_6', label: '5:00–6:00 PM', start: '17:00', end: '18:00' },
-  { id: '6_7', label: '6:00–7:00 PM', start: '18:00', end: '19:00' },
-  { id: '7_8', label: '7:00–8:00 PM', start: '19:00', end: '20:00' },
-]
-
-export const BATCHES: Batch[] = DAY_PATTERNS.flatMap((dp) =>
-  TIME_SLOTS.map((ts) => ({
-    id: `${dp.id}_${ts.id}`,
-    dayPatternLabel: dp.label,
-    days: dp.days,
-    timeSlotLabel: ts.label,
-    startTime: ts.start,
-    endTime: ts.end,
-    label: `${dp.label} · ${ts.label}`,
-  }))
-)
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-export function isValidBatchId(id: unknown): id is string {
-  return typeof id === 'string' && BATCHES.some((b) => b.id === id)
+/** Day toggles for the batch picker, Monday-first — how a timetable is normally read. */
+export const DAY_OPTIONS: { value: number; label: string }[] = [1, 2, 3, 4, 5, 6, 0].map((d) => ({
+  value: d,
+  label: DOW_SHORT[d],
+}))
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+const CODE_RE = /^([0-6](?:,[0-6])*)@(\d{2}:\d{2})-(\d{2}:\d{2})$/
+const LEGACY_CODE_RE = /^(MWF|TTS|WEEKEND)_(5_6|6_7|7_8)$/
+
+const LEGACY_DAYS: Record<string, number[]> = {
+  MWF: [1, 3, 5],
+  TTS: [2, 4, 6],
+  WEEKEND: [0, 6],
 }
 
-export function batchById(id: string | undefined | null): Batch | undefined {
-  if (!id) return undefined
-  return BATCHES.find((b) => b.id === id)
+const LEGACY_TIMES: Record<string, [string, string]> = {
+  '5_6': ['17:00', '18:00'],
+  '6_7': ['18:00', '19:00'],
+  '7_8': ['19:00', '20:00'],
 }
 
-export function batchLabel(id: string | undefined | null): string {
-  return batchById(id)?.label ?? '—'
+function sortedUniqueDays(days: number[]): number[] {
+  return [...new Set(days)].filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b)
 }
 
-export function dayPatternLabel(id: string | undefined | null): string {
-  return batchById(id)?.dayPatternLabel ?? '—'
+export function isValidTime(time: string): boolean {
+  return TIME_RE.test(time)
 }
 
-export function timeSlotLabel(id: string | undefined | null): string {
-  return batchById(id)?.timeSlotLabel ?? '—'
+export function encodeBatch(schedule: BatchSchedule): string {
+  return `${sortedUniqueDays(schedule.days).join(',')}@${schedule.startTime}-${schedule.endTime}`
+}
+
+export function parseBatch(code: string | undefined | null): BatchSchedule | undefined {
+  if (!code) return undefined
+
+  const match = CODE_RE.exec(code)
+  if (match) {
+    const days = sortedUniqueDays(match[1].split(',').map(Number))
+    if (days.length === 0 || !isValidTime(match[2]) || !isValidTime(match[3])) return undefined
+    return { days, startTime: match[2], endTime: match[3] }
+  }
+
+  const legacy = LEGACY_CODE_RE.exec(code)
+  if (legacy) {
+    const [startTime, endTime] = LEGACY_TIMES[legacy[2]]
+    return { days: LEGACY_DAYS[legacy[1]], startTime, endTime }
+  }
+
+  return undefined
+}
+
+/** Whitelists a batch code server-side the same way isValidBranchId does for branches. */
+export function isValidBatchId(code: unknown): code is string {
+  return typeof code === 'string' && !!parseBatch(code)
+}
+
+function formatTime(time: string): string {
+  const [h, m] = time.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`
+}
+
+/** "Mon/Wed/Fri" from a raw day list — used to head a register group, which has no single code. */
+export function daysLabel(days: number[]): string {
+  if (days.length === 0) return '—'
+  return days.map((d) => DOW_SHORT[d]).join('/')
+}
+
+/** "Mon/Wed/Fri" — the days half of a batch, for table columns that split days from time. */
+export function dayPatternLabel(code: string | undefined | null): string {
+  const batch = parseBatch(code)
+  if (!batch) return '—'
+  return daysLabel(batch.days)
+}
+
+/** "5:00 PM–6:00 PM" — the time half. */
+export function timeSlotLabel(code: string | undefined | null): string {
+  const batch = parseBatch(code)
+  if (!batch) return '—'
+  return `${formatTime(batch.startTime)}–${formatTime(batch.endTime)}`
+}
+
+export function batchLabel(code: string | undefined | null): string {
+  const batch = parseBatch(code)
+  if (!batch) return '—'
+  return `${dayPatternLabel(code)} · ${timeSlotLabel(code)}`
+}
+
+/**
+ * Grouping key for the attendance register: students whose batches fall on the same days share
+ * one table, since the columns depend only on which weekdays are class days (their time windows
+ * can still differ, which is why the register shows each student's own time per row).
+ */
+export function batchDayKey(code: string | undefined | null): string | undefined {
+  const batch = parseBatch(code)
+  if (!batch) return undefined
+  return batch.days.join(',')
 }
 
 /**
@@ -89,40 +139,35 @@ export function dayOfWeekFromDateString(dateStr: string): number {
   return new Date(y, m - 1, d).getDay()
 }
 
-export function matchesBatchDay(batchId: string, dateStr: string): boolean {
-  return batchById(batchId)?.days.includes(dayOfWeekFromDateString(dateStr)) ?? false
+export function matchesBatchDay(code: string, dateStr: string): boolean {
+  return parseBatch(code)?.days.includes(dayOfWeekFromDateString(dateStr)) ?? false
 }
 
 /** Null if the batch is unknown/unset (can't validate) or the date matches the schedule. */
-export function batchScheduleMismatchMessage(batchId: string, dateStr: string): string | null {
-  const batch = batchById(batchId)
+export function batchScheduleMismatchMessage(code: string, dateStr: string): string | null {
+  const batch = parseBatch(code)
   if (!batch) return null
   const dow = dayOfWeekFromDateString(dateStr)
   if (batch.days.includes(dow)) return null
-  return `This student's batch meets ${batch.dayPatternLabel} — ${DOW_NAMES[dow]} isn't a scheduled day.`
+  const days = batch.days.map((d) => DOW_NAMES[d]).join(', ')
+  return `This student's batch meets ${days} — ${DOW_NAMES[dow]} isn't a scheduled day.`
 }
 
 function toDateString(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-/** Every "YYYY-MM-DD" date in the given 1-indexed month that falls on one of the batch's class days. */
-export function classDatesInMonth(batchId: string, year: number, month: number): string[] {
-  const batch = batchById(batchId)
-  if (!batch) return []
+/** Every "YYYY-MM-DD" date in the given 1-indexed month falling on one of these weekdays. */
+export function classDatesInMonth(days: number[], year: number, month: number): string[] {
+  if (days.length === 0) return []
   const daysInMonth = new Date(year, month, 0).getDate()
   const dates: string[] = []
   for (let day = 1; day <= daysInMonth; day++) {
-    if (batch.days.includes(new Date(year, month - 1, day).getDay())) {
+    if (days.includes(new Date(year, month - 1, day).getDay())) {
       dates.push(toDateString(year, month, day))
     }
   }
   return dates
-}
-
-export interface WeekGroup {
-  label: string
-  dates: string[]
 }
 
 /**

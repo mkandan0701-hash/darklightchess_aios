@@ -1,12 +1,13 @@
 'use client'
 
 import type { Attendance, Student } from '@/lib/types'
-import { classDatesInMonth, groupDatesByWeek, dayOfWeekFromDateString } from '@/lib/batches'
+import { classDatesInMonth, groupDatesByWeek, dayOfWeekFromDateString, timeSlotLabel } from '@/lib/batches'
 
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface AttendanceGridProps {
-  batchId: string
+  /** Weekdays this group meets on — the students share these days, but not necessarily the time. */
+  days: number[]
   students: Student[]
   attendance: Attendance[]
   year: number
@@ -18,9 +19,9 @@ interface AttendanceGridProps {
 }
 
 /**
- * One student-by-class-day register for a single batch. Columns are generated from the batch's
- * own day-pattern, so every column is a real class day for every row — a mismatched click is
- * structurally impossible here (unlike the free-date "Mark Attendance" modal).
+ * One student-by-class-day register for everyone whose batch falls on the same days. Columns are
+ * generated from those days, so every column is a real class day for every row — a mismatched
+ * click is structurally impossible here (unlike the free-date "Mark Attendance" modal).
  *
  * Cell cycle: unmarked -> present -> absent. Clearing a marked cell back to unmarked deletes the
  * Attendance record, which the API restricts to superadmin (see app/api/attendance/delete) — so
@@ -28,7 +29,7 @@ interface AttendanceGridProps {
  * present/absent once a cell has been marked.
  */
 export default function AttendanceGrid({
-  batchId,
+  days,
   students,
   attendance,
   year,
@@ -38,7 +39,7 @@ export default function AttendanceGrid({
   onMark,
   onUnmark,
 }: AttendanceGridProps) {
-  const dates = classDatesInMonth(batchId, year, month)
+  const dates = classDatesInMonth(days, year, month)
   const weeks = groupDatesByWeek(dates)
 
   if (dates.length === 0 || students.length === 0) return null
@@ -65,6 +66,7 @@ export default function AttendanceGrid({
         <thead>
           <tr>
             <th className="text-left py-2 pr-3 sticky left-0 bg-white">Student</th>
+            <th className="text-left py-2 pr-3 text-gray-500 font-semibold whitespace-nowrap">Time</th>
             {weeks.map((week) => (
               <th
                 key={week.label}
@@ -77,6 +79,7 @@ export default function AttendanceGrid({
           </tr>
           <tr>
             <th className="pb-2 pr-3 sticky left-0 bg-white" />
+            <th className="pb-2 pr-3" />
             {dates.map((date) => (
               <th key={date} className="text-center pb-2 px-1 text-gray-400 font-medium whitespace-nowrap">
                 {DOW_SHORT[dayOfWeekFromDateString(date)]}
@@ -91,6 +94,9 @@ export default function AttendanceGrid({
             <tr key={student.id}>
               <td className="py-1.5 pr-3 font-medium text-textDark whitespace-nowrap sticky left-0 bg-white">
                 {student.name}
+              </td>
+              <td className="py-1.5 pr-3 text-gray-500 whitespace-nowrap">
+                {timeSlotLabel(student.batchId)}
               </td>
               {dates.map((date) => {
                 const record = recordFor(student.id, date)

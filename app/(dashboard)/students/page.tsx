@@ -4,11 +4,12 @@ import { useEffect, useState, useMemo } from 'react'
 import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import StudentFormModal, { type StudentFormValues } from '@/components/StudentFormModal'
+import BatchPicker from '@/components/BatchPicker'
 import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
-import { BATCHES, batchLabel } from '@/lib/batches'
+import { batchLabel, encodeBatch, parseBatch } from '@/lib/batches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
 
@@ -29,7 +30,7 @@ export default function StudentsPage() {
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
-  const [editBatchId, setEditBatchId] = useState('')
+  const [editBatch, setEditBatch] = useState({ days: [] as number[], startTime: '17:00', endTime: '18:00' })
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [editError, setEditError] = useState('')
   const showBranchColumn = useIsAllBranches()
@@ -177,7 +178,14 @@ export default function StudentsPage() {
 
   const handleOpenEditBatch = (student: Student) => {
     setEditingStudent(student)
-    setEditBatchId(student.batchId ?? '')
+    // A student still on a pre-custom-batch code is pre-filled from its parsed days/times, so
+    // saving quietly migrates them to the new format.
+    const existing = parseBatch(student.batchId)
+    setEditBatch({
+      days: existing?.days ?? [],
+      startTime: existing?.startTime ?? '17:00',
+      endTime: existing?.endTime ?? '18:00',
+    })
     setEditError('')
   }
 
@@ -186,19 +194,19 @@ export default function StudentsPage() {
     setEditError('')
     setEditSubmitting(true)
     try {
+      const batchId = editBatch.days.length > 0 ? encodeBatch(editBatch) : ''
       const res = await fetch('/api/clickup/students/update-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: editingStudent.id, batchId: editBatchId }),
+        body: JSON.stringify({ studentId: editingStudent.id, batchId }),
       })
       const result = await res.json() as { success?: boolean; error?: string }
       if (!res.ok || !result.success) {
         setEditError(result.error ?? 'Failed to update batch')
         return
       }
-      const savedBatchId = editBatchId || undefined
       setStudents((prev) =>
-        prev.map((s) => (s.id === editingStudent.id ? { ...s, batchId: savedBatchId } : s))
+        prev.map((s) => (s.id === editingStudent.id ? { ...s, batchId: batchId || undefined } : s))
       )
       setEditingStudent(null)
     } catch {
@@ -449,26 +457,19 @@ export default function StudentsPage() {
           setEditError('')
         }}
         title={`Edit Batch — ${editingStudent?.name ?? ''}`}
-        size="sm"
       >
         <div className="space-y-4">
           {editError && (
             <p className="text-sm text-error bg-red-50 border border-red-200 rounded-lg px-3 py-2">{editError}</p>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch</label>
-            <select
-              value={editBatchId}
-              onChange={(e) => setEditBatchId(e.target.value)}
-              className="input-field"
-            >
-              <option value="">No batch</option>
-              {BATCHES.map((b) => (
-                <option key={b.id} value={b.id}>{b.label}</option>
-              ))}
-            </select>
-          </div>
+          <BatchPicker
+            days={editBatch.days}
+            startTime={editBatch.startTime}
+            endTime={editBatch.endTime}
+            onChange={setEditBatch}
+          />
+          <p className="text-xs text-gray-500">Clear every day to unset this student&apos;s batch.</p>
 
           <button
             onClick={handleSaveBatch}

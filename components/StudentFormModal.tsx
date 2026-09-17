@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Modal from '@/components/Modal'
-import { BATCHES } from '@/lib/batches'
+import BatchPicker from '@/components/BatchPicker'
+import { encodeBatch } from '@/lib/batches'
 
 export interface StudentFormValues {
   name: string
@@ -12,11 +13,26 @@ export interface StudentFormValues {
   duration: string
   monthlyFee: string
   grade: string
+  /** Encoded batch code, or '' when no days were picked. */
   batchId: string
   online: boolean
 }
 
-function emptyForm(defaultOnline: boolean): StudentFormValues {
+interface FormState {
+  name: string
+  email: string
+  phone: string
+  classesPerWeek: string
+  duration: string
+  monthlyFee: string
+  grade: string
+  days: number[]
+  startTime: string
+  endTime: string
+  online: boolean
+}
+
+function emptyForm(defaultOnline: boolean): FormState {
   return {
     name: '',
     email: '',
@@ -25,7 +41,9 @@ function emptyForm(defaultOnline: boolean): StudentFormValues {
     duration: '45 min',
     monthlyFee: '',
     grade: '',
-    batchId: '',
+    days: [],
+    startTime: '17:00',
+    endTime: '18:00',
     online: defaultOnline,
   }
 }
@@ -60,7 +78,11 @@ export default function StudentFormModal({
   }, [isOpen, defaultOnline])
 
   const handleSubmit = async () => {
-    const success = await onSubmit(form)
+    const { days, startTime, endTime, ...rest } = form
+    const success = await onSubmit({
+      ...rest,
+      batchId: days.length > 0 ? encodeBatch({ days, startTime, endTime }) : '',
+    })
     if (success) onClose()
   }
 
@@ -151,19 +173,12 @@ export default function StudentFormModal({
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Batch</label>
-          <select
-            value={form.batchId}
-            onChange={(e) => setForm({ ...form, batchId: e.target.value })}
-            className="input-field"
-          >
-            <option value="">Select a batch…</option>
-            {BATCHES.map((b) => (
-              <option key={b.id} value={b.id}>{b.label}</option>
-            ))}
-          </select>
-        </div>
+        <BatchPicker
+          days={form.days}
+          startTime={form.startTime}
+          endTime={form.endTime}
+          onChange={(next) => setForm({ ...form, ...next })}
+        />
 
         <label className="flex items-center gap-2 text-sm text-textDark">
           <input

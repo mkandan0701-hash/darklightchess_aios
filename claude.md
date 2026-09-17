@@ -187,22 +187,30 @@ typecast-safety reason as below.
 
 **Attendance is created programmatically** by `scripts/add-attendance-table.js` (idempotent — run it
 once against the base). `Student.batch_timing` is added by `scripts/add-batch-timing-field.js`; it's
-set only at student-creation time — there is no student-edit feature for it or any other Student
-field yet. `createAttendance()` **upserts**: a second submission for the same `student_id` + `date`
+set at student-creation time and editable afterwards by a superadmin (see `updateStudentBatch`) —
+along with `online`, one of only two editable Student fields. `createAttendance()` **upserts**: a second submission for the same `student_id` + `date`
 patches the existing row (via `findOne`) rather than creating a duplicate, so attendance stays one
 row per student per day even if it's corrected later. Checkbox fields deserialize as `true` or
 **absent** (never `false`) when unchecked — the mapper treats missing as `false`.
 
-**`batch_timing` holds one of a fixed 9-batch catalog's codes, not free text.** `lib/batches.ts`
-defines 3 day-patterns (Mon/Wed/Fri, Tue/Thu/Sat, Weekend = Sat & Sun) × 3 time-slots (5–6, 6–7,
-7–8 PM), e.g. `MWF_5_6`, giving ids like `MWF_5_6`…`WEEKEND_7_8`. The Airtable field is still plain
-`singleLineText` (no schema change from the free-text version — only the values written into it
-changed) and the TypeScript property is `Student.batchId`, not `batchTiming`, to make clear it's a
-code, not prose; `isValidBatchId` whitelists it server-side the same way `isValidBranchId` does for
-branches. `AirtableClient.createAttendance` rejects (`BatchScheduleError` → 400) marking attendance
-on a date whose weekday isn't one of the student's batch's days — skipped entirely for a student
-with no `batchId` set. The catalog is hardcoded (not env-configurable like branches) since a new
-batch is a source edit, not a per-deployment difference.
+**`batch_timing` holds a per-student batch code, not free text and no longer a catalog id.** Each
+student picks their own convenient days plus a time window, encoded by `lib/batches.ts` as
+`"<days>@<start>-<end>"` — day-of-week ints (0=Sun…6=Sat, `Date.getDay()` order) sorted and
+comma-joined, then 24-hour times, e.g. `1,4@18:00-19:00` = Mon & Thu, 6–7 PM. The Airtable field is
+still plain `singleLineText` (no schema change across any of its three formats — only the values
+written into it changed) and the TypeScript property is `Student.batchId`, not `batchTiming`, to
+make clear it's a code, not prose; `isValidBatchId` whitelists it server-side the same way
+`isValidBranchId` does for branches. `AirtableClient.createAttendance` rejects (`BatchScheduleError`
+→ 400) marking attendance on a date whose weekday isn't one of the student's days — skipped
+entirely for a student with no batch set.
+
+Codes from the **previous fixed 9-batch catalog** (3 day-patterns × 3 time-slots, `MWF_5_6`…
+`WEEKEND_7_8`) still parse, so students created under it keep working; `parseBatch` falls back to
+that table, and re-saving such a student through the edit-batch modal rewrites them in the current
+format. Nothing writes legacy codes any more. Because batches are now per-student, the
+`/attendance` monthly register groups students by **matching day-set** (computed at render, via
+`batchDayKey`) rather than by a shared batch id — students on the same days share one table and
+each row shows its own time window, since only the days determine the table's columns.
 
 `branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
 display names. Pre-creating those choices is what stops `typecast: true` from inventing a

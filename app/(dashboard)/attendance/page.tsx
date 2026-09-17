@@ -8,7 +8,7 @@ import type { Attendance, Student, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
-import { BATCHES, batchLabel, batchScheduleMismatchMessage, dayPatternLabel, timeSlotLabel } from '@/lib/batches'
+import { batchLabel, batchScheduleMismatchMessage, dayPatternLabel, daysLabel, parseBatch, timeSlotLabel } from '@/lib/batches'
 
 const EMPTY_FORM = {
   studentId: '',
@@ -218,39 +218,51 @@ export default function AttendancePage() {
     [students, search]
   )
 
-  const studentsByBatch = useMemo(() => {
-    const map = new Map<string, Student[]>()
+  // Batches are per-student now, so the register groups students whose batches fall on the same
+  // days — those share one table because the columns depend only on which weekdays are class days.
+  const studentsByDayKey = useMemo(() => {
+    const map = new Map<string, { days: number[]; students: Student[] }>()
     for (const s of searchedStudents) {
-      if (!s.batchId) continue
-      if (!map.has(s.batchId)) map.set(s.batchId, [])
-      map.get(s.batchId)!.push(s)
+      const batch = parseBatch(s.batchId)
+      if (!batch) continue
+      const key = batch.days.join(',')
+      if (!map.has(key)) map.set(key, { days: batch.days, students: [] })
+      map.get(key)!.students.push(s)
     }
     return map
   }, [searchedStudents])
 
   const noBatchCount = useMemo(
-    () => searchedStudents.filter((s) => !s.batchId).length,
+    () => searchedStudents.filter((s) => !parseBatch(s.batchId)).length,
     [searchedStudents]
   )
 
   const registerGroups = useMemo(() => {
+    const keys = [...studentsByDayKey.keys()].sort()
+    const groupsFor = (branch?: string) =>
+      keys
+        .map((key) => {
+          const { days, students: members } = studentsByDayKey.get(key)!
+          return {
+            key,
+            days,
+            students: branch === undefined ? members : members.filter((s) => (s.branch ?? '') === branch),
+          }
+        })
+        .filter((g) => g.students.length > 0)
+
     if (!showBranchColumn) {
-      const batches = BATCHES
-        .filter((b) => studentsByBatch.has(b.id))
-        .map((b) => [b.id, studentsByBatch.get(b.id)!] as const)
-      return [{ branch: undefined as string | undefined, batches }]
+      return [{ branch: undefined as string | undefined, batches: groupsFor(undefined) }]
     }
+
     const branchKeys = new Set<string>()
-    for (const list of studentsByBatch.values()) {
-      for (const s of list) branchKeys.add(s.branch ?? '')
+    for (const group of studentsByDayKey.values()) {
+      for (const s of group.students) branchKeys.add(s.branch ?? '')
     }
-    return [...branchKeys].sort((a, b) => a.localeCompare(b)).map((branch) => {
-      const batches = BATCHES
-        .filter((b) => studentsByBatch.get(b.id)?.some((s) => (s.branch ?? '') === branch))
-        .map((b) => [b.id, studentsByBatch.get(b.id)!.filter((s) => (s.branch ?? '') === branch)] as const)
-      return { branch, batches }
-    })
-  }, [studentsByBatch, showBranchColumn])
+    return [...branchKeys]
+      .sort((a, b) => a.localeCompare(b))
+      .map((branch) => ({ branch, batches: groupsFor(branch) }))
+  }, [studentsByDayKey, showBranchColumn])
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return searchedStudents.map((s) => {
@@ -442,12 +454,12 @@ export default function AttendancePage() {
                   <p className="text-sm font-semibold text-primary mb-2">{branchName(group.branch)}</p>
                 )}
                 <div className="space-y-5">
-                  {group.batches.map(([batchId, batchStudents]) => (
-                    <div key={batchId}>
-                      <p className="text-xs font-semibold text-gray-500 mb-1">{batchLabel(batchId)}</p>
+                  {group.batches.map((batch) => (
+                    <div key={batch.key}>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">{daysLabel(batch.days)}</p>
                       <AttendanceGrid
-                        batchId={batchId}
-                        students={batchStudents}
+                        days={batch.days}
+                        students={batch.students}
                         attendance={attendance}
                         year={gridDate.year}
                         month={gridDate.month}
