@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import { useSession } from '@/components/SessionProvider'
+import { useMobileSidebar } from '@/components/MobileSidebarProvider'
 import BranchSwitcher from '@/components/BranchSwitcher'
 import { branchName } from '@/lib/branches'
 
@@ -11,6 +12,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/leads': 'Leads',
   '/payments': 'Payments',
   '/analytics': 'Analytics',
+  '/online-classes': 'Online Classes',
   '/communications': 'Communications',
   '/settings': 'Settings',
 }
@@ -33,6 +35,7 @@ export default function Header() {
   const router = useRouter()
   const title = getPageTitle(pathname)
   const { session } = useSession()
+  const { toggle } = useMobileSidebar()
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -41,8 +44,20 @@ export default function Header() {
   }
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
-      <h1 className="text-xl font-bold text-primary">{title}</h1>
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 flex-shrink-0">
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Toggle navigation menu"
+          className="md:hidden -ml-1 p-2 rounded-lg text-gray-500 hover:bg-gray-100 flex-shrink-0"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <h1 className="text-xl font-bold text-primary truncate">{title}</h1>
+      </div>
       <div className="flex items-center gap-4">
         {session.role === 'superadmin' && <BranchSwitcher />}
 

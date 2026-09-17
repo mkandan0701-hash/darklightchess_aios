@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession } from '@/components/SessionProvider'
+import { useMobileSidebar } from '@/components/MobileSidebarProvider'
 import { branchName } from '@/lib/branches'
 import type { Role } from '@/lib/auth/types'
 
@@ -86,6 +87,15 @@ function MessageIcon() {
   )
 }
 
+function OnlineIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M12 20h.01M8.5 16.429a5 5 0 017 0M5 12.859a10 10 0 0114 0M1.5 9.289a15 15 0 0121 0" />
+    </svg>
+  )
+}
+
 function SettingsIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,6 +114,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/payments', label: 'Payments', icon: <CreditCardIcon /> },
   { href: '/finance', label: 'Finance', icon: <FinanceIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <BarChartIcon />, roles: ['superadmin'] },
+  { href: '/online-classes', label: 'Online Classes', icon: <OnlineIcon />, roles: ['superadmin'] },
   { href: '/communications', label: 'Communications', icon: <MessageIcon /> },
   { href: '/settings', label: 'Settings', icon: <SettingsIcon />, roles: ['superadmin'] },
 ]
@@ -111,13 +122,27 @@ const NAV_ITEMS: NavItem[] = [
 export default function Sidebar() {
   const pathname = usePathname()
   const { session, scope } = useSession()
+  const { isOpen, close } = useMobileSidebar()
 
   const items = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(session.role))
   const currentBranchLabel =
     scope.branches === 'all' ? 'All Branches' : branchName(scope.branches[0])
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 bg-primary flex flex-col z-40 shadow-lg">
+    <>
+      {/* Backdrop — mobile only, closes the sidebar on tap outside it */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          onClick={close}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`fixed left-0 top-0 h-screen w-60 bg-primary flex flex-col z-40 shadow-lg transform transition-transform duration-200 md:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-6 border-b border-white/10">
         <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
@@ -147,6 +172,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={close}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                 isActive
                   ? 'bg-accent text-primary'
@@ -164,6 +190,7 @@ export default function Sidebar() {
       <div className="px-5 py-4 border-t border-white/10">
         <p className="text-white/40 text-xs">v0.1.0 · Darklight Dashboard</p>
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

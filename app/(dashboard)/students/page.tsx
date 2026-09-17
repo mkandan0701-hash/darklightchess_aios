@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import Table from '@/components/Table'
 import Modal from '@/components/Modal'
+import StudentFormModal, { type StudentFormValues } from '@/components/StudentFormModal'
 import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
@@ -18,24 +19,12 @@ const FILTER_OPTIONS: { label: string; value: FilterStatus }[] = [
   { label: 'Overdue', value: 'overdue' },
 ]
 
-const EMPTY_FORM = {
-  name: '',
-  email: '',
-  phone: '',
-  classesPerWeek: '3',
-  duration: '45 min',
-  monthlyFee: '',
-  grade: '',
-  batchId: '',
-}
-
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [showAddModal, setShowAddModal] = useState(false)
-  const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -56,27 +45,50 @@ export default function StudentsPage() {
       .catch(() => setLoading(false))
   }, [])
 
-  const handleAddStudent = async () => {
+  const handleAddStudent = async (values: StudentFormValues): Promise<boolean> => {
     setFormError('')
     setSubmitting(true)
     try {
       const res = await fetch('/api/clickup/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(values),
       })
       const result = await res.json() as { success: boolean; data?: Student; error?: string }
       if (!result.success || !result.data) {
         setFormError(result.error ?? 'Failed to add student')
-        return
+        return false
       }
       setStudents((prev) => [result.data as Student, ...prev])
-      setForm(EMPTY_FORM)
-      setShowAddModal(false)
+      return true
     } catch {
       setFormError('Failed to add student. Please try again.')
+      return false
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleToggleOnline = async (student: Student) => {
+    setActionLoading(`online-${student.id}`)
+    try {
+      const res = await fetch('/api/clickup/students/update-online', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: student.id, online: !student.online }),
+      })
+      const result = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || !result.success) {
+        alert(result.error ?? 'Failed to update online status')
+        return
+      }
+      setStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, online: !s.online } : s))
+      )
+    } catch {
+      alert('Failed to update online status. Please try again.')
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -255,6 +267,15 @@ export default function StudentsPage() {
       render: (v) => batchLabel(v as string | undefined),
     },
     {
+      key: 'online',
+      label: 'Mode',
+      render: (v) => (
+        <span className={`status-badge ${v ? 'text-primary bg-blue-100' : 'text-gray-500 bg-gray-100'}`}>
+          {v ? 'Online' : 'Offline'}
+        </span>
+      ),
+    },
+    {
       key: 'paymentStatus',
       label: 'Status',
       render: (v) => (
@@ -315,6 +336,22 @@ export default function StudentsPage() {
               }}
             >
               Edit Batch
+            </button>
+          )}
+          {isSuperAdmin && (
+            <button
+              className="btn-sm bg-white border border-gray-300 text-textDark hover:bg-gray-50 disabled:opacity-50"
+              disabled={actionLoading === `online-${row.id}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleToggleOnline(row)
+              }}
+            >
+              {actionLoading === `online-${row.id}`
+                ? 'Updating...'
+                : row.online
+                ? 'Mark Offline'
+                : 'Mark Online'}
             </button>
           )}
           {isSuperAdmin && (
@@ -391,129 +428,20 @@ export default function StudentsPage() {
       />
 
       {/* Add Student Modal */}
-      <Modal
+      <StudentFormModal
         isOpen={showAddModal}
         onClose={() => {
           setShowAddModal(false)
-          setForm(EMPTY_FORM)
           setFormError('')
         }}
+        onSubmit={handleAddStudent}
+        submitting={submitting}
+        error={formError}
         title="Add Student"
-      >
-        <div className="space-y-4">
-          {formError && (
-            <p className="text-sm text-error bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</p>
-          )}
+        defaultOnline={false}
+      />
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="input-field"
-              placeholder="Student's full name"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Email</label>
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="input-field"
-              placeholder="parent@email.com"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Phone</label>
-            <input
-              type="text"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="input-field"
-              placeholder="+919876543210"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Classes/Week</label>
-              <input
-                type="number"
-                min="1"
-                value={form.classesPerWeek}
-                onChange={(e) => setForm({ ...form, classesPerWeek: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Duration</label>
-              <input
-                type="text"
-                value={form.duration}
-                onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                className="input-field"
-                placeholder="45 min"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Monthly Fee (₹)</label>
-              <input
-                type="number"
-                min="1"
-                value={form.monthlyFee}
-                onChange={(e) => setForm({ ...form, monthlyFee: e.target.value })}
-                className="input-field"
-                placeholder="5000"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Grade</label>
-              <input
-                type="text"
-                value={form.grade}
-                onChange={(e) => setForm({ ...form, grade: e.target.value })}
-                className="input-field"
-                placeholder="U12"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Batch</label>
-            <select
-              value={form.batchId}
-              onChange={(e) => setForm({ ...form, batchId: e.target.value })}
-              className="input-field"
-            >
-              <option value="">Select a batch…</option>
-              {BATCHES.map((b) => (
-                <option key={b.id} value={b.id}>{b.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={handleAddStudent}
-            disabled={submitting || !form.name || !form.email || !form.phone || !form.monthlyFee}
-            className={`btn-primary w-full justify-center ${
-              submitting || !form.name || !form.email || !form.phone || !form.monthlyFee
-                ? 'opacity-60 cursor-not-allowed'
-                : ''
-            }`}
-          >
-            {submitting ? 'Adding...' : 'Add Student'}
-          </button>
-        </div>
-      </Modal>
-
-      {/* Edit Batch Modal — superadmin only; the one editable Student field */}
+      {/* Edit Batch Modal — superadmin only; one of the two editable Student fields */}
       <Modal
         isOpen={!!editingStudent}
         onClose={() => {

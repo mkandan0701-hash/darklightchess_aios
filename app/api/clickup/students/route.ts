@@ -25,7 +25,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { name, email, phone, classesPerWeek, duration, monthlyFee, grade, batchId } = body as Record<string, unknown>
+  const { name, email, phone, classesPerWeek, duration, monthlyFee, grade, batchId, online } = body as Record<string, unknown>
 
   if (typeof name !== 'string' || name.trim().length < 2) {
     return NextResponse.json({ success: false, error: 'Name is required (minimum 2 characters)' }, { status: 400 })
@@ -45,6 +45,9 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
   if (typeof batchId === 'string' && batchId.trim() && !isValidBatchId(batchId.trim())) {
     return NextResponse.json({ success: false, error: 'Invalid batch selected' }, { status: 400 })
   }
+  if (online !== undefined && typeof online !== 'boolean') {
+    return NextResponse.json({ success: false, error: 'online must be a boolean' }, { status: 400 })
+  }
 
   try {
     // The branch is never taken from the request body. An admin gets their own branch; a
@@ -59,6 +62,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
       grade: typeof grade === 'string' ? grade.trim() : undefined,
       batchId: typeof batchId === 'string' && batchId.trim() ? batchId.trim() : undefined,
       branch: branchForNewRecord(scope, session),
+      online: typeof online === 'boolean' ? online : undefined,
     })
 
     return NextResponse.json({ success: true, data: student })

@@ -20,6 +20,7 @@ export interface Student {
   grade?: string
   batchId?: string
   branch?: string
+  online: boolean
 }
 
 export interface Lead {

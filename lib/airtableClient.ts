@@ -157,6 +157,9 @@ function mapRecordToStudent(record: AirtableRecord): Student {
     grade: (f.grade as string) || undefined,
     batchId: (f.batch_timing as string) || undefined,
     branch: selectName(f.branch) || undefined,
+    // Airtable omits an unchecked checkbox from the response entirely (undefined, not false) —
+    // same convention as `present`/`homework_done` in mapRecordToAttendance.
+    online: f.online === true,
   }
 }
 
@@ -749,8 +752,10 @@ export class AirtableClient {
     grade?: string
     batchId?: string
     branch: string
+    online?: boolean
   }): Promise<Student> {
     const enrolledDate = new Date().toISOString().split('T')[0]
+    const online = !!data.online
 
     if (!isValidBranchId(data.branch)) {
       throw new Error(`Refusing to create a student in unknown branch "${data.branch}"`)
@@ -770,6 +775,7 @@ export class AirtableClient {
         grade: data.grade,
         batchId: data.batchId,
         branch: data.branch,
+        online,
       }
       console.log(`[AIRTABLE MOCK] Created student`, student)
       return student
@@ -787,6 +793,7 @@ export class AirtableClient {
       grade: data.grade ?? '',
       batch_timing: data.batchId ?? '',
       branch: data.branch,
+      online,
     })
 
     // Without this, a newly enrolled student has no row in Payments at all — invisible to
@@ -807,11 +814,11 @@ export class AirtableClient {
   }
 
   /**
-   * The one exception to "every Student field is create-only" — narrowly scoped to just the
-   * batch, since there's otherwise no way to correct a mistaken batch selection after a student
-   * is created. Superadmin-only is enforced at the route level
-   * (app/api/clickup/students/update-batch/route.ts), not here. `batchId` may be `''` to clear
-   * the student's batch back to unset.
+   * Batch and online/offline are the two exceptions to "every other Student field is
+   * create-only" — there's otherwise no way to correct a mistaken batch selection, or to flip a
+   * student between online and in-person delivery, after the student is created. Superadmin-only
+   * is enforced at the route level (app/api/clickup/students/update-batch/route.ts), not here.
+   * `batchId` may be `''` to clear the student's batch back to unset.
    */
   async updateStudentBatch(studentId: string, batchId: string): Promise<void> {
     if (batchId && !isValidBatchId(batchId)) {
@@ -823,6 +830,16 @@ export class AirtableClient {
       return
     }
     await patchRecord(TABLES.students, studentId, { batch_timing: batchId })
+  }
+
+  /** See updateStudentBatch above — same create-only exception, same superadmin-at-the-route rule. */
+  async updateStudentOnline(studentId: string, online: boolean): Promise<void> {
+    await this.assertInScope(TABLES.students, studentId)
+    if (!AirtableClient.isConfigured()) {
+      console.log(`[AIRTABLE MOCK] updateStudentOnline`, { studentId, online })
+      return
+    }
+    await patchRecord(TABLES.students, studentId, { online })
   }
 
   async createLead(data: {

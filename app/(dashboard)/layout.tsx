@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Sidebar from '@/components/Sidebar'
 import Header from '@/components/Header'
 import { SessionProvider } from '@/components/SessionProvider'
+import { MobileSidebarProvider } from '@/components/MobileSidebarProvider'
 import { verifySession } from '@/lib/auth/session'
 import { scopeForSession } from '@/lib/auth/rbac'
 import { ALL_BRANCHES, BRANCH_COOKIE, SESSION_COOKIE } from '@/lib/auth/cookies'
@@ -24,19 +25,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SessionProvider value={{ session, scope, branches: getBranches(), activeBranch }}>
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <div className="flex flex-col flex-1 ml-60 min-h-screen">
-          <Header />
-          {/*
-            Keying on the active branch remounts the page subtree when a superadmin switches
-            branches, which re-runs the useEffect fetches every page relies on.
-          */}
-          <main key={activeBranch} className="flex-1 p-6 overflow-auto">
-            {children}
-          </main>
+      <MobileSidebarProvider>
+        <div className="flex min-h-screen">
+          <Sidebar />
+          <div className="flex flex-col flex-1 ml-0 md:ml-60 min-h-screen">
+            <Header />
+            {/*
+              Keying on the active branch remounts the page subtree when a superadmin switches
+              branches, which re-runs the useEffect fetches every page relies on.
+            */}
+            <main key={activeBranch} className="flex-1 p-6 overflow-auto">
+              {children}
+            </main>
+          </div>
         </div>
-      </div>
+      </MobileSidebarProvider>
     </SessionProvider>
   )
 }
