@@ -21,7 +21,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/students` | Student list, add, delete, payment link, mark paid/unpaid | admin + superadmin |
 | `/attendance` | Mark daily present/absent + homework done per student (batch timing shown from the student's record); attendance/homework-vs-fee-status report, per-branch for superadmin | admin + superadmin |
 | `/leads` | Lead funnel, add, delete, book demo, convert to student | admin + superadmin |
-| `/payments` | Payment list, remind, mark paid/unpaid | admin + superadmin |
+| `/payments` | Payment list for one month at a time (prev/next switcher), remind, mark paid/unpaid | admin + superadmin |
 | `/finance` | Expense entry/delete, Income/Expense/Net Profit summary (current month, per-branch for superadmin) | admin + superadmin |
 | `/communications` | Email / WhatsApp composer | admin + superadmin |
 | `/analytics` | Funnel, revenue, source conversion, income-vs-expense charts | **superadmin only** |
@@ -395,7 +395,14 @@ call site that forgot to pass a scope is a type error.
 - **Monthly billing arrears stack, by design.** `AirtableClient.runMonthlyReset()` (the
   `/api/cron/monthly-reset` cron, 1st of the month) always *creates* a new Payment due for every
   student rather than mutating an existing one — a student who never paid last month ends up with
-  two open dues (last month's stays overdue, a new one is due this month), so "Overdue Payments" and
-  "Total Due" on `/payments` correctly grow with unpaid months rather than silently merging them into
-  one. Idempotent per student per calendar month (skips if a Payment already has a `dueDate` in the
-  current month), so a retried cron run never double-bills.
+  two open dues (last month's stays overdue, a new one is due this month) rather than silently
+  merging them into one. Idempotent per student per calendar month (skips if a Payment already has a
+  `dueDate` in the current month), so a retried cron run never double-bills.
+- **`/payments` is scoped to one month at a time.** Its cards and table cover the month in the header
+  switcher (default: the current one), keyed on `dueDate` — so "Due This Month" restarts each 1st as
+  the cron writes that month's rows, instead of being a lifetime running total. Because arrears
+  stack (above), the dues those earlier months left behind are **not** dropped: a separate
+  **Arrears** card sums every still-unpaid row dated before the month on screen, so the headline
+  resets without the backlog disappearing. "Collected", "Collection Rate" and "Overdue" are
+  likewise about the month on screen only. The dashboard was always month-scoped this way;
+  `/payments` was the one page summing every row ever written.
