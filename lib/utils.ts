@@ -55,3 +55,19 @@ export function getGreeting(): string {
   if (hour < 17) return 'Good afternoon'
   return 'Good evening'
 }
+
+/**
+ * "YYYY-MM" for a date. A paused student stores the month they're sitting out, so the pause
+ * expires on its own when the calendar rolls over — no cron or cleanup pass has to end it.
+ */
+export function monthKey(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** True while the student is paused for the month that `date` falls in. */
+export function isStudentPaused(
+  student: { pausedMonth?: string },
+  date: Date = new Date()
+): boolean {
+  return !!student.pausedMonth && student.pausedMonth === monthKey(date)
+}

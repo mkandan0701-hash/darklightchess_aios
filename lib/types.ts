@@ -21,6 +21,8 @@ export interface Student {
   batchId?: string
   branch?: string
   online: boolean
+  /** "YYYY-MM" the student is sitting out, if any. Expires on its own when the month ends. */
+  pausedMonth?: string
 }
 
 export interface Lead {

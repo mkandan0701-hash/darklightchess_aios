@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import StudentFormModal, { type StudentFormValues } from '@/components/StudentFormModal'
 import BatchPicker from '@/components/BatchPicker'
 import type { Student, Column } from '@/lib/types'
-import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
+import { formatCurrency, formatDate, getStatusColor, isStudentPaused, monthKey } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 import { batchLabel, encodeBatch, parseBatch } from '@/lib/batches'
@@ -67,6 +67,34 @@ export default function StudentsPage() {
       return false
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleTogglePaused = async (student: Student) => {
+    const paused = !isStudentPaused(student)
+    if (paused && !window.confirm(
+      `Pause ${student.name} for this month? Their unpaid fee for this month is cancelled, and billing restarts on the 1st of next month.`
+    )) return
+
+    setActionLoading(`pause-${student.id}`)
+    try {
+      const res = await fetch('/api/clickup/students/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: student.id, paused }),
+      })
+      const result = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || !result.success) {
+        alert(result.error ?? 'Failed to update pause status')
+        return
+      }
+      setStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, pausedMonth: paused ? monthKey() : undefined } : s))
+      )
+    } catch {
+      alert('Failed to update pause status. Please try again.')
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -286,11 +314,14 @@ export default function StudentsPage() {
     {
       key: 'paymentStatus',
       label: 'Status',
-      render: (v) => (
-        <span className={`status-badge ${getStatusColor(String(v))}`}>
-          {String(v)}
-        </span>
-      ),
+      // While paused there's no due to be pending or overdue about, so the pause replaces the
+      // fee status rather than sitting beside it.
+      render: (v, row) =>
+        isStudentPaused(row) ? (
+          <span className="status-badge text-gray-600 bg-gray-200">paused</span>
+        ) : (
+          <span className={`status-badge ${getStatusColor(String(v))}`}>{String(v)}</span>
+        ),
     },
     // Only shown to a superadmin viewing every branch at once — a branch admin's rows are
     // already all the same branch.
@@ -335,6 +366,20 @@ export default function StudentsPage() {
               {actionLoading === `paid-${row.id}` ? 'Marking...' : 'Mark Paid'}
             </button>
           )}
+          <button
+            className="btn-sm bg-white border border-gray-300 text-textDark hover:bg-gray-50 disabled:opacity-50"
+            disabled={actionLoading === `pause-${row.id}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleTogglePaused(row)
+            }}
+          >
+            {actionLoading === `pause-${row.id}`
+              ? 'Updating...'
+              : isStudentPaused(row)
+              ? 'Resume'
+              : 'Pause'}
+          </button>
           {isSuperAdmin && (
             <button
               className="btn-sm bg-white border border-gray-300 text-textDark hover:bg-gray-50"

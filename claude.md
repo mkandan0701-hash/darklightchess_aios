@@ -18,7 +18,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | Path | Purpose | Who can see it |
 |---|---|---|
 | `/` | Dashboard — stat cards (leads, students, revenue, overdue, expenses, net profit), quick actions | admin + superadmin |
-| `/students` | Student list, add, delete, payment link, mark paid/unpaid | admin + superadmin |
+| `/students` | Student list, add, delete, payment link, mark paid/unpaid, pause/resume for a month | admin + superadmin |
 | `/attendance` | Mark daily present/absent + homework done per student (batch timing shown from the student's record); attendance/homework-vs-fee-status report, per-branch for superadmin | admin + superadmin |
 | `/leads` | Lead funnel, add, delete, book demo, convert to student | admin + superadmin |
 | `/payments` | Payment list for one month at a time (prev/next switcher), remind, mark paid/unpaid | admin + superadmin |
@@ -39,6 +39,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/auth/google/callback` | GET | Prints `GOOGLE_REFRESH_TOKEN` | **superadmin** |
 | `/api/clickup/students` | GET/POST | List / create students (Airtable) | session, branch-scoped |
 | `/api/clickup/students/delete` | POST | Hard-delete a student, cascading to all their Payments | **superadmin**, scope-asserted |
+| `/api/clickup/students/pause` | POST | Pause/resume a student for the current month | session, scope-asserted |
 | `/api/clickup/leads` | GET/POST | List / create leads | session, branch-scoped |
 | `/api/clickup/leads/delete` | POST | Hard-delete a lead | **superadmin**, scope-asserted |
 | `/api/clickup/payments` | GET | List payments | session, branch-scoped |
@@ -173,7 +174,7 @@ camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 
 | Table | Fields |
 |---|---|
-| **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `batch_timing`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
+| **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `batch_timing`, `paused_month`, `online`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
 | **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `created_at`, **`branch`** |
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
 | **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
@@ -297,6 +298,8 @@ still works in an environment without secrets.)
 | `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
 | `scripts/add-attendance-table.js` | One-shot: creates the `Attendance` table via the Airtable Meta API. |
 | `scripts/add-batch-timing-field.js` | One-shot: adds `batch_timing` (text) to Students via the Airtable Meta API. |
+| `scripts/add-online-field.js` | One-shot: adds `online` (checkbox) to Students via the Airtable Meta API. |
+| `scripts/add-paused-month-field.js` | One-shot: adds `paused_month` (text) to Students via the Airtable Meta API. |
 | `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
 | `scripts/cleanup-orphaned-payments.js` | One-shot: deletes Payment rows whose `student_id` points at a deleted Student — retroactive fix for students deleted before `deleteStudent()` cascaded. `--apply` to write. |
 
@@ -398,6 +401,18 @@ call site that forgot to pass a scope is a type error.
   two open dues (last month's stays overdue, a new one is due this month) rather than silently
   merging them into one. Idempotent per student per calendar month (skips if a Payment already has a
   `dueDate` in the current month), so a retried cron run never double-bills.
+- **Pausing a student is scoped to one calendar month and expires on its own.** `paused_month`
+  holds a `"YYYY-MM"` string; `isStudentPaused` (lib/utils.ts) just asks whether it equals the
+  current month, so the pause ends when the calendar turns over — no cron, no cleanup pass, and
+  nothing to forget to switch back on. Consequences, all keyed on that same string:
+  `runMonthlyReset` skips a student paused for the month it's billing (needed because the cron
+  runs at 09:00 on the 1st and could otherwise re-raise a due someone cancelled hours earlier);
+  `computeStats` leaves their fee out of `monthlyRevenue` while counting them in
+  `activeStudents`, since a pause is a break and not an un-enrolment; and
+  `setStudentPaused` deletes their **unpaid** dues for that month, leaving anything already paid
+  alone. Resuming inside the paused month re-creates the due, so a mis-click can't quietly skip a
+  month's fee. Unlike `update-batch`/`update-online` the route is **not** superadmin-gated —
+  pausing is routine branch work, and `assertInScope` still confines it to the caller's branch.
 - **`/payments` is scoped to one month at a time.** Its cards and table cover the month in the header
   switcher (default: the current one), keyed on `dueDate` — so "Due This Month" restarts each 1st as
   the cron writes that month's rows, instead of being a lifetime running total. Because arrears

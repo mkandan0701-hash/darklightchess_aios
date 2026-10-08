@@ -2,6 +2,7 @@
 
 import type { Attendance, Student } from '@/lib/types'
 import { classDatesInMonth, groupDatesByWeek, dayOfWeekFromDateString } from '@/lib/batches'
+import { isStudentPaused } from '@/lib/utils'
 
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -92,6 +93,9 @@ export default function AttendanceGrid({
             <tr key={student.id}>
               <td className="py-1.5 pr-3 font-medium text-textDark whitespace-nowrap sticky left-0 bg-white">
                 {student.name}
+                {isStudentPaused(student, new Date(year, month - 1, 1)) && (
+                  <span className="ml-2 status-badge text-gray-600 bg-gray-200">paused</span>
+                )}
               </td>
               {dates.map((date) => {
                 const record = recordFor(student.id, date)

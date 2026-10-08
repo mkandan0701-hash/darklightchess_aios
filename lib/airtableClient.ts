@@ -4,6 +4,7 @@ import { canAccessBranch, systemScope } from './auth/rbac'
 import { ALL_BRANCHES } from './auth/cookies'
 import { branchName, isValidBranchId } from './branches'
 import { batchScheduleMismatchMessage, isValidBatchId } from './batches'
+import { monthKey } from './utils'
 
 const BASE_URL = 'https://api.airtable.com/v0'
 
@@ -160,6 +161,7 @@ function mapRecordToStudent(record: AirtableRecord): Student {
     // Airtable omits an unchecked checkbox from the response entirely (undefined, not false) —
     // same convention as `present`/`homework_done` in mapRecordToAttendance.
     online: f.online === true,
+    pausedMonth: (f.paused_month as string) || undefined,
   }
 }
 
@@ -241,8 +243,13 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
 
   // Expected recurring revenue: every enrolled student's monthly fee, regardless of whether
   // they've paid yet. Reflects a new student immediately rather than waiting on a Payments
-  // row to be marked paid — see claude.md discussion of `computeStats`.
-  const monthlyRevenue = students.reduce((sum, s) => sum + s.monthlyFee, 0)
+  // row to be marked paid — see claude.md discussion of `computeStats`. Students paused for
+  // this month are left out: no due is raised for them, so counting their fee would overstate
+  // the month. They stay in activeStudents — a pause is a break, not an un-enrolment.
+  const pausedThisMonth = monthKey(now)
+  const monthlyRevenue = students
+    .filter((s) => s.pausedMonth !== pausedThisMonth)
+    .reduce((sum, s) => sum + s.monthlyFee, 0)
 
   const monthlyExpenses = expenses
     .filter((e) => e.date && inCurrentMonth(e.date))
@@ -418,15 +425,19 @@ export class AirtableClient {
    * whole attendance write. Duplicates assertInScope's own fetch of the same record; that
    * duplication already exists as the codebase's accepted pattern (see getRecordBranch).
    */
-  private async getStudentBatchId(studentId: string): Promise<string | undefined> {
-    if (!AirtableClient.isConfigured()) return undefined
+  private async getStudentRecord(studentId: string): Promise<AirtableRecord | null> {
+    if (!AirtableClient.isConfigured()) return null
     const res = await fetch(tableUrl(TABLES.students, `/${encodeURIComponent(studentId)}`), {
       headers: getHeaders(),
       cache: 'no-store',
     })
-    if (!res.ok) return undefined
-    const record = (await res.json()) as AirtableRecord
-    return (record.fields.batch_timing as string) || undefined
+    if (!res.ok) return null
+    return (await res.json()) as AirtableRecord
+  }
+
+  private async getStudentBatchId(studentId: string): Promise<string | undefined> {
+    const record = await this.getStudentRecord(studentId)
+    return (record?.fields.batch_timing as string) || undefined
   }
 
   // --- Reads ---
@@ -714,7 +725,18 @@ export class AirtableClient {
     let created = 0
     let skipped = 0
 
+    // Same "YYYY-MM" a pause stores. Taken from dueDate so it uses the identical UTC parts as
+    // the row being written, rather than re-deriving the month a second way.
+    const billingMonth = dueDate.slice(0, 7)
+
     for (const student of students) {
+      // Paused for exactly this month, so don't raise the due the pause just cancelled. The
+      // stored month stops matching next time round, which is what resumes them.
+      if (student.pausedMonth === billingMonth) {
+        skipped++
+        continue
+      }
+
       const alreadyDueThisMonth = payments.some((p) => {
         if (p.studentId !== student.id || !p.dueDate) return false
         const due = new Date(p.dueDate)
@@ -830,6 +852,60 @@ export class AirtableClient {
       return
     }
     await patchRecord(TABLES.students, studentId, { batch_timing: batchId })
+  }
+
+  /**
+   * Pause or resume a student for the current calendar month. The stored "YYYY-MM" stops matching
+   * once the month turns over, so a paused student resumes on the 1st by themselves — nothing has
+   * to remember to switch them back on.
+   *
+   * Pausing also cancels what they'd owe for the month they're sitting out; resuming inside that
+   * same month puts it back, so a mis-click doesn't silently skip a month's fee. Unlike the batch
+   * and online toggles this is open to any admin for their own branch: it's day-to-day operations,
+   * and `assertInScope` still keeps it to their own students.
+   */
+  async setStudentPaused(studentId: string, paused: boolean): Promise<void> {
+    await this.assertInScope(TABLES.students, studentId)
+    const month = monthKey()
+
+    if (!AirtableClient.isConfigured()) {
+      console.log(`[AIRTABLE MOCK] setStudentPaused`, { studentId, paused, month })
+      return
+    }
+
+    await patchRecord(TABLES.students, studentId, { paused_month: paused ? month : '' })
+
+    // Unscoped for the same reason deleteStudent's payment lookup is: a superadmin's dl_branch
+    // cookie must not narrow which of this student's own rows we can see.
+    const openDues = await this.findMany(
+      TABLES.payments,
+      `AND({student_id}='${escapeFormulaString(studentId)}', {status}!='paid', DATETIME_FORMAT({due_date},'YYYY-MM')='${month}')`,
+      false
+    )
+
+    if (paused) {
+      // Only unpaid dues go. Money already collected is never erased by a pause.
+      if (openDues.length > 0) {
+        await deleteRecordsBatch(TABLES.payments, openDues.map((r) => r.id))
+      }
+      return
+    }
+
+    if (openDues.length > 0) return
+
+    const record = await this.getStudentRecord(studentId)
+    if (!record) return
+
+    const f = record.fields
+    await createRecord(TABLES.payments, {
+      student_id: studentId,
+      student_name: (f.name as string) ?? '',
+      amount: Number(f.amount_due) || 0,
+      due_date: `${month}-01`,
+      status: 'pending',
+      branch: selectName(f.branch) || '',
+    })
+    await patchRecord(TABLES.students, studentId, { payment_status: 'pending' })
   }
 
   /** See updateStudentBatch above — same create-only exception, same superadmin-at-the-route rule. */
