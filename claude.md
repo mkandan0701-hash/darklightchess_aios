@@ -417,11 +417,12 @@ call site that forgot to pass a scope is a type error.
     the daily-reminders cron and `runMonthlyReset` do.
   - `assertInScope` returns the record it fetched; reuse it rather than re-reading the same row.
   - `getStats` reads only `{status}='overdue'` Payments — the only thing `computeStats` uses them for.
-- **`/payments` is scoped to one month at a time.** Its cards and table cover the month in the header
-  switcher (default: the current one), keyed on `dueDate` — so "Due This Month" restarts each 1st as
-  the cron writes that month's rows, instead of being a lifetime running total. Because arrears
-  stack (above), the dues those earlier months left behind are **not** dropped: a separate
-  **Arrears** card sums every still-unpaid row dated before the month on screen, so the headline
-  resets without the backlog disappearing. "Collected", "Collection Rate" and "Overdue" are
-  likewise about the month on screen only. The dashboard was always month-scoped this way;
-  `/payments` was the one page summing every row ever written.
+- **`/payments` starts at November 2026 and is scoped to one month at a time.** Every Payment due before
+  2026-11-01 was deleted (`scripts/delete-old-payments.js`), so the month switcher stops at
+  `FIRST_MONTH` in the page and there is no Arrears card. Cards and table cover the month on screen,
+  keyed on `dueDate`.
+- **Mark paid / unpaid write strictly.** `markPaymentPaid`/`markPaymentUnpaid`/`recordPayment`/
+  `markStudentUnpaid` use `patchRecordStrict`, which throws on an Airtable error instead of logging, so
+  the UI can't report success for a write that failed. The student-driven path settles the Payment
+  due in the *current* month (`pickCurrentMonthDue`), not an arbitrary unpaid one. Unpaid clears
+  `paid_date` with `null`, not `''`.

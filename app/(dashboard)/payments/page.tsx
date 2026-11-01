@@ -7,6 +7,9 @@ import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
+// Payments history starts here; earlier months were cleared and the page doesn't page back past it.
+const FIRST_MONTH = '2026-11'
+
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -55,7 +58,7 @@ export default function PaymentsPage() {
           studentName: payment.studentName,
           parentEmail: student?.email,
           parentPhone: student?.phone,
-          amount: payment.amountDue,
+          amount: payment.amountDue || student?.monthlyFee,
           coachName: 'Darklight Coach',
         }),
       })
@@ -64,6 +67,7 @@ export default function PaymentsPage() {
         alert(result.error ?? 'Failed to mark as paid')
         return
       }
+      // Local update, not a re-fetch: another serverless instance may still hold a cached list.
       setPayments((prev) =>
         prev.map((p) =>
           p.id === payment.id
@@ -147,14 +151,8 @@ export default function PaymentsPage() {
     const overdue = monthPayments.filter((p) => p.status === 'overdue').length
     const rate = totalDue ? Math.round((totalCollected / totalDue) * 100) : 0
 
-    // Unpaid dues from months before the one on screen. Kept out of the headline so it restarts
-    // on the 1st, but shown as its own card so arrears never silently disappear — billing stacks
-    // them deliberately (see claude.md "Monthly billing arrears stack").
-    const earlier = payments.filter((p) => (p.dueDate ?? '') < monthKey && p.status !== 'paid')
-    const arrears = earlier.reduce((s, p) => s + Math.max(p.amountDue - p.amountPaid, 0), 0)
-
-    return { totalDue, totalCollected, overdue, rate, arrears, arrearsCount: earlier.length }
-  }, [monthPayments, payments, monthKey])
+    return { totalDue, totalCollected, overdue, rate }
+  }, [monthPayments])
 
   const columns: Column<Payment>[] = [
     { key: 'studentName', label: 'Student' },
@@ -250,7 +248,8 @@ export default function PaymentsPage() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="btn-sm bg-white border border-gray-300 hover:bg-gray-50"
+            className="btn-sm bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-40"
+            disabled={monthKey <= FIRST_MONTH}
             onClick={() => shiftMonth(-1)}
           >
             ‹
@@ -272,7 +271,7 @@ export default function PaymentsPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card text-center">
           <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Due This Month</p>
           <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(summary.totalDue)}</p>
@@ -288,13 +287,6 @@ export default function PaymentsPage() {
         <div className="card text-center">
           <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Overdue</p>
           <p className="text-2xl font-bold text-error mt-1">{summary.overdue}</p>
-        </div>
-        <div className="card text-center">
-          <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Arrears</p>
-          <p className="text-2xl font-bold text-error mt-1">{formatCurrency(summary.arrears)}</p>
-          <p className="text-xs text-gray-400 mt-1">
-            {summary.arrearsCount} unpaid from earlier months
-          </p>
         </div>
       </div>
 

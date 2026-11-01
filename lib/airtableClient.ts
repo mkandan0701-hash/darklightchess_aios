@@ -190,6 +190,32 @@ async function patchRecord(table: string, recordId: string, fields: Record<strin
   }
 }
 
+// Of several Payment rows for one student, the one due in the same calendar month (UTC, like the
+// monthly cron) as `refIso`; failing that, the most recently due. Null when there are none.
+function pickCurrentMonthDue(records: AirtableRecord[], refIso: string): AirtableRecord | null {
+  if (records.length === 0) return null
+  const month = refIso.slice(0, 7)
+  const due = (r: AirtableRecord) => String(r.fields.due_date ?? '')
+  const inMonth = records.find((r) => due(r).startsWith(month))
+  if (inMonth) return inMonth
+  return [...records].sort((a, b) => due(b).localeCompare(due(a)))[0]
+}
+
+// Throwing variant of patchRecord for the mark paid/unpaid paths: a rejected write must reach the
+// caller as an error, otherwise the UI reports "marked as paid" for a row Airtable never changed.
+async function patchRecordStrict(table: string, recordId: string, fields: Record<string, unknown>): Promise<void> {
+  const res = await fetch(tableUrl(table, `/${recordId}`), {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify({ fields, typecast: true }),
+  })
+  invalidateTable(table)
+  if (!res.ok) {
+    const errText = await res.text()
+    throw airtableError(res.status, errText, `Airtable update of ${table} record ${recordId} failed`)
+  }
+}
+
 async function createRecord(table: string, fields: Record<string, unknown>): Promise<AirtableRecord> {
   const res = await fetch(tableUrl(table), {
     method: 'POST',
@@ -692,19 +718,24 @@ export class AirtableClient {
     studentId: string,
     data: { amount: number; studentName: string; paidAt: string; razorpayPaymentId?: string }
   ): Promise<void> {
-    const existing = await this.findOne(
-      TABLES.payments,
-      `AND({student_id}='${escapeFormulaString(studentId)}', {status}!='paid')`
+    // Arrears stack, so a student can have several unpaid dues. Settle this month's, not whichever
+    // one Airtable happens to return first.
+    const existing = pickCurrentMonthDue(
+      await this.findMany(
+        TABLES.payments,
+        `AND({student_id}='${escapeFormulaString(studentId)}', {status}!='paid')`
+      ),
+      data.paidAt
     )
     const fields: Record<string, unknown> = {
       status: 'paid',
       amount_paid: data.amount,
-      paid_date: data.paidAt,
+      paid_date: data.paidAt.slice(0, 10),
     }
     if (data.razorpayPaymentId) fields.payment_id = data.razorpayPaymentId
 
     if (existing) {
-      await patchRecord(TABLES.payments, existing.id, fields)
+      await patchRecordStrict(TABLES.payments, existing.id, fields)
       return
     }
 
@@ -713,7 +744,7 @@ export class AirtableClient {
       student_id: studentId,
       student_name: data.studentName,
       amount: data.amount,
-      due_date: data.paidAt,
+      due_date: data.paidAt.slice(0, 10),
       branch,
       ...fields,
     })
@@ -728,7 +759,7 @@ export class AirtableClient {
       console.log(`[AIRTABLE MOCK] markStudentPaidManually`, { studentId, ...data })
       return
     }
-    await patchRecord(TABLES.students, studentId, { payment_status: 'paid' })
+    await patchRecordStrict(TABLES.students, studentId, { payment_status: 'paid' })
     await this.recordPayment(studentId, { amount: data.amount, studentName: data.studentName, paidAt: data.paidAt })
   }
 
@@ -738,14 +769,17 @@ export class AirtableClient {
       console.log(`[AIRTABLE MOCK] markStudentUnpaid`, { studentId })
       return
     }
-    await patchRecord(TABLES.students, studentId, { payment_status: 'pending' })
+    await patchRecordStrict(TABLES.students, studentId, { payment_status: 'pending' })
 
-    const existing = await this.findOne(
-      TABLES.payments,
-      `AND({student_id}='${escapeFormulaString(studentId)}', {status}='paid')`
+    const existing = pickCurrentMonthDue(
+      await this.findMany(
+        TABLES.payments,
+        `AND({student_id}='${escapeFormulaString(studentId)}', {status}='paid')`
+      ),
+      new Date().toISOString()
     )
     if (existing) {
-      await patchRecord(TABLES.payments, existing.id, { status: 'pending', amount_paid: 0, paid_date: '' })
+      await patchRecordStrict(TABLES.payments, existing.id, { status: 'pending', amount_paid: 0, paid_date: null })
     }
   }
 
@@ -762,10 +796,10 @@ export class AirtableClient {
       console.log(`[AIRTABLE MOCK] markPaymentPaid`, { paymentId, ...data })
       return
     }
-    await patchRecord(TABLES.payments, paymentId, {
+    await patchRecordStrict(TABLES.payments, paymentId, {
       status: 'paid',
       amount_paid: data.amountPaid,
-      paid_date: data.paidDate,
+      paid_date: data.paidDate.slice(0, 10),
     })
     await this.syncStudentPaymentStatus(paymentId, data.studentId, 'paid')
   }
@@ -776,7 +810,7 @@ export class AirtableClient {
       console.log(`[AIRTABLE MOCK] markPaymentUnpaid`, { paymentId })
       return
     }
-    await patchRecord(TABLES.payments, paymentId, { status: 'pending', amount_paid: 0, paid_date: '' })
+    await patchRecordStrict(TABLES.payments, paymentId, { status: 'pending', amount_paid: 0, paid_date: null })
     await this.syncStudentPaymentStatus(paymentId, data.studentId, 'pending')
   }
 
