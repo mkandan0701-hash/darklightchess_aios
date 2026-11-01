@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Modal from '@/components/Modal'
 import BatchPicker from '@/components/BatchPicker'
-import { encodeBatch } from '@/lib/batches'
+import { batchInputError, encodeBatch } from '@/lib/batches'
 
 export interface StudentFormValues {
   name: string
@@ -76,6 +76,9 @@ export default function StudentFormModal({
   useEffect(() => {
     if (isOpen) setForm(emptyForm(defaultOnline))
   }, [isOpen, defaultOnline])
+
+  const batchError = batchInputError(form)
+  const cannotSubmit = submitting || !form.name || !form.email || !form.phone || !form.monthlyFee || !!batchError
 
   const handleSubmit = async () => {
     const { days, startTime, endTime, ...rest } = form
@@ -179,6 +182,7 @@ export default function StudentFormModal({
           endTime={form.endTime}
           onChange={(next) => setForm({ ...form, ...next })}
         />
+        {batchError && <p className="text-xs text-error">{batchError}</p>}
 
         <label className="flex items-center gap-2 text-sm text-textDark">
           <input
@@ -192,12 +196,8 @@ export default function StudentFormModal({
 
         <button
           onClick={handleSubmit}
-          disabled={submitting || !form.name || !form.email || !form.phone || !form.monthlyFee}
-          className={`btn-primary w-full justify-center ${
-            submitting || !form.name || !form.email || !form.phone || !form.monthlyFee
-              ? 'opacity-60 cursor-not-allowed'
-              : ''
-          }`}
+          disabled={cannotSubmit}
+          className={`btn-primary w-full justify-center ${cannotSubmit ? 'opacity-60 cursor-not-allowed' : ''}`}
         >
           {submitting ? 'Adding...' : submitLabel}
         </button>

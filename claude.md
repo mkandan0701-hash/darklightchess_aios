@@ -13,13 +13,12 @@ Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airta
 
 All 6 automation workflows are **built and live**. This is not a greenfield project.
 
-### Pages (10)
+### Pages (9)
 
 | Path | Purpose | Who can see it |
 |---|---|---|
 | `/` | Dashboard — stat cards (leads, students, revenue, overdue, expenses, net profit), quick actions | admin + superadmin |
 | `/students` | Student list, add, delete, payment link, mark paid/unpaid, pause/resume for a month | admin + superadmin |
-| `/attendance` | Mark daily present/absent + homework done per student (batch timing shown from the student's record); attendance/homework-vs-fee-status report, per-branch for superadmin | admin + superadmin |
 | `/leads` | Lead funnel, add, delete, book demo, convert to student | admin + superadmin |
 | `/payments` | Payment list for one month at a time (prev/next switcher), remind, mark paid/unpaid | admin + superadmin |
 | `/finance` | Expense entry/delete, Income/Expense/Net Profit summary (current month, per-branch for superadmin) | admin + superadmin |
@@ -28,7 +27,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/settings` | API connection status, JSON export | **superadmin only** |
 | `/login` | Credential login | public |
 
-### API routes (30)
+### API routes (28)
 
 | Route | Method | Purpose | Auth |
 |---|---|---|---|
@@ -46,8 +45,6 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/clickup/stats` | GET | Dashboard aggregates incl. `monthlyExpenses`/`netProfit` (+ `byBranch` for superadmin) | session, branch-scoped |
 | `/api/expenses` | GET/POST | List / create expenses | session, branch-scoped |
 | `/api/expenses/delete` | POST | Hard-delete an expense | **superadmin**, scope-asserted |
-| `/api/attendance` | GET/POST | List attendance / mark present-absent + homework for a student+date (upserts on repeat) | session, branch-scoped |
-| `/api/attendance/delete` | POST | Hard-delete an attendance record | **superadmin**, scope-asserted |
 | `/api/leads/convert` | POST | Lead → Student; student inherits the lead's branch | session, scope-asserted |
 | `/api/mark-paid` | POST | Mark paid (student- or payment-driven) + receipt email/WhatsApp | session, scope-asserted |
 | `/api/mark-unpaid` | POST | Revert to pending (student- or payment-driven) | session, scope-asserted |
@@ -169,7 +166,7 @@ another branch's record ids by probing status codes. The real denial is logged s
 
 ## 5. Data model
 
-Airtable base `AIRTABLE_BASE_ID`, five tables. Field names are **snake_case in Airtable** and
+Airtable base `AIRTABLE_BASE_ID`, four tables the app uses. Field names are **snake_case in Airtable** and
 camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 
 | Table | Fields |
@@ -178,7 +175,6 @@ camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 | **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `created_at`, **`branch`** |
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
 | **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
-| **Attendance** | `student_id`, `student_name`, `date`, `present` (checkbox), `homework_done` (checkbox), **`branch`** |
 
 **Expenses is a manually-created table** (there's no `add-expenses-field.js` equivalent to
 `add-branch-field.js`) — before this feature ships, create it in the base with `description` (text),
@@ -186,12 +182,13 @@ camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 singleSelect with the same 3 branch-id choices pre-created as the other tables, for the same
 typecast-safety reason as below.
 
-**Attendance is created programmatically** by `scripts/add-attendance-table.js` (idempotent — run it
-once against the base). `Student.batch_timing` is added by `scripts/add-batch-timing-field.js`; it's
-set at student-creation time and editable afterwards by a superadmin (see `updateStudentBatch`) —
-along with `online`, one of only two editable Student fields. `createAttendance()` **upserts**: a second submission for the same `student_id` + `date`
-patches the existing row (via `findOne`) rather than creating a duplicate, so attendance stays one
-row per student per day even if it's corrected later. Checkbox fields deserialize as `true` or
+**Attendance tracking was removed on 2026-10-27** (the `/attendance` page, its API routes, and the
+monthly register/report) to cut Airtable API usage. The `Attendance` table and its rows were left
+in the base untouched; nothing reads or writes it. Restore from git history if it's wanted back.
+
+`Student.batch_timing` is added by `scripts/add-batch-timing-field.js`; it's set at
+student-creation time and editable afterwards by a superadmin (see `updateStudentBatch`) — along
+with `online`, one of only two editable Student fields. Checkbox fields deserialize as `true` or
 **absent** (never `false`) when unchecked — the mapper treats missing as `false`.
 
 **`batch_timing` holds a per-student batch code, not free text and no longer a catalog id.** Each
@@ -201,17 +198,12 @@ comma-joined, then 24-hour times, e.g. `1,4@18:00-19:00` = Mon & Thu, 6–7 PM. 
 still plain `singleLineText` (no schema change across any of its three formats — only the values
 written into it changed) and the TypeScript property is `Student.batchId`, not `batchTiming`, to
 make clear it's a code, not prose; `isValidBatchId` whitelists it server-side the same way
-`isValidBranchId` does for branches. `AirtableClient.createAttendance` rejects (`BatchScheduleError`
-→ 400) marking attendance on a date whose weekday isn't one of the student's days — skipped
-entirely for a student with no batch set.
+`isValidBranchId` does for branches.
 
 Codes from the **previous fixed 9-batch catalog** (3 day-patterns × 3 time-slots, `MWF_5_6`…
 `WEEKEND_7_8`) still parse, so students created under it keep working; `parseBatch` falls back to
 that table, and re-saving such a student through the edit-batch modal rewrites them in the current
-format. Nothing writes legacy codes any more. Because batches are now per-student, the
-`/attendance` monthly register **rebuilds** them at render: students are grouped by matching days
-*and* time window (re-encoding each parsed batch, so a legacy code groups with an identical custom
-one), meaning Mon/Wed/Fri 5–6 PM and Mon/Wed/Fri 6–7 PM are two separate tables.
+format. Nothing writes legacy codes any more.
 
 `branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
 display names. Pre-creating those choices is what stops `typecast: true` from inventing a
@@ -248,6 +240,7 @@ Two traps:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` / `GOOGLE_REFRESH_TOKEN` / `GOOGLE_CALENDAR_ID` | | Meet links |
 | `CRON_SECRET` | | Vercel cron auth |
 | `COACH_POOL` | no | JSON array of coaches for lead assignment |
+| `AIRTABLE_CACHE_TTL_SECONDS` | no | default `60`; how long `list()` reads are cached per instance. `0` disables. |
 
 `ACADEMY_USERS` shape — one line, unquoted, no `#` (the `.env.local` loader in `scripts/` parses
 `^([A-Z0-9_]+)=(.*)$`):
@@ -296,7 +289,6 @@ still works in an environment without secrets.)
 | `app/(dashboard)/layout.tsx` | Verifies session server-side, injects `SessionProvider`. |
 | `app/(dashboard)/analytics/layout.tsx`, `.../settings/layout.tsx` | Server-side `role === 'superadmin'` gate. The Sidebar hiding these links is UX only — these layouts are what actually stop a branch admin from loading the page by URL. |
 | `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
-| `scripts/add-attendance-table.js` | One-shot: creates the `Attendance` table via the Airtable Meta API. |
 | `scripts/add-batch-timing-field.js` | One-shot: adds `batch_timing` (text) to Students via the Airtable Meta API. |
 | `scripts/add-online-field.js` | One-shot: adds `online` (checkbox) to Students via the Airtable Meta API. |
 | `scripts/add-paused-month-field.js` | One-shot: adds `paused_month` (text) to Students via the Airtable Meta API. |
@@ -413,6 +405,18 @@ call site that forgot to pass a scope is a type error.
   alone. Resuming inside the paused month re-creates the due, so a mis-click can't quietly skip a
   month's fee. Unlike `update-batch`/`update-online` the route is **not** superadmin-gated —
   pausing is routine branch work, and `assertInScope` still confines it to the caller's branch.
+- **Airtable requests are rationed — the free plan's monthly API quota ran out on 2026-10-27**
+  (`PUBLIC_API_BILLING_LIMIT_EXCEEDED` takes the whole app down; `withAuth` reports it as a 503
+  via `AirtableUnavailableError`). Keep new code inside these rules:
+  - `list()` reads are cached for `AIRTABLE_CACHE_TTL_SECONDS` (default 60), keyed on the full
+    scoped formula; every write helper invalidates its table. The cache is **per serverless
+    instance**, so a reload served by a different instance can be up to the TTL stale.
+    `AirtableClient.system()` (cron/webhooks) and `findOne`/`findMany` (find-before-write) never
+    use it.
+  - Loops that write per row use `patchRecordsBatch` / `createRecordsBatch` (10 per request) —
+    the daily-reminders cron and `runMonthlyReset` do.
+  - `assertInScope` returns the record it fetched; reuse it rather than re-reading the same row.
+  - `getStats` reads only `{status}='overdue'` Payments — the only thing `computeStats` uses them for.
 - **`/payments` is scoped to one month at a time.** Its cards and table cover the month in the header
   switcher (default: the current one), keyed on `dueDate` — so "Due This Month" restarts each 1st as
   the cron writes that month's rows, instead of being a lifetime running total. Because arrears

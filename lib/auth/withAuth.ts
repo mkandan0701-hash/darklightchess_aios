@@ -3,7 +3,7 @@ import type { Role, Scope, Session } from './types'
 import { verifySession } from './session'
 import { scopeFromRequest } from './scope'
 import { SESSION_COOKIE } from './cookies'
-import { AirtableClient, ScopeError } from '../airtableClient'
+import { AirtableClient, AirtableUnavailableError, ScopeError } from '../airtableClient'
 
 export interface AuthContext {
   session: Session
@@ -47,6 +47,16 @@ export function withAuth(handler: Handler, opts: { roles?: Role[] } = {}) {
       // ids by probing status codes. The real denial is logged in assertInScope.
       if (err instanceof ScopeError) {
         return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+      }
+      if (err instanceof AirtableUnavailableError) {
+        console.error('[AIRTABLE UNAVAILABLE]', err.message)
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Airtable API limit reached — the database is temporarily unavailable. Upgrade the Airtable plan or wait for the monthly reset.',
+          },
+          { status: 503 }
+        )
       }
       throw err
     }

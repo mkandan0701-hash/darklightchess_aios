@@ -1,9 +1,9 @@
-import type { Attendance, BranchStats, DashboardStats, DashboardStatsResponse, Expense, Lead, Payment, Student } from './types'
+import type { BranchStats, DashboardStats, DashboardStatsResponse, Expense, Lead, Payment, Student } from './types'
 import type { Scope } from './auth/types'
 import { canAccessBranch, systemScope } from './auth/rbac'
 import { ALL_BRANCHES } from './auth/cookies'
 import { branchName, isValidBranchId } from './branches'
-import { batchScheduleMismatchMessage, isValidBatchId } from './batches'
+import { isValidBatchId } from './batches'
 import { monthKey } from './utils'
 
 const BASE_URL = 'https://api.airtable.com/v0'
@@ -13,7 +13,6 @@ const TABLES = {
   leads: 'Leads',
   payments: 'Payments',
   expenses: 'Expenses',
-  attendance: 'Attendance',
 } as const
 
 function getHeaders(): Record<string, string> {
@@ -40,12 +39,26 @@ export class ScopeError extends Error {
   }
 }
 
-/** Thrown when attendance is marked for a date that doesn't match the student's batch schedule. */
-export class BatchScheduleError extends Error {
+/**
+ * Airtable refused the request for account-level reasons — the workspace's monthly API quota is
+ * used up (PUBLIC_API_BILLING_LIMIT_EXCEEDED) or we're being rate limited (429). Kept distinct
+ * from a plain failure so withAuth can tell the user the database is unavailable, instead of the
+ * request surfacing as a generic 500 or, via assertInScope, a misleading 404.
+ */
+export class AirtableUnavailableError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'BatchScheduleError'
+    this.name = 'AirtableUnavailableError'
   }
+}
+
+function isAirtableUnavailable(status: number, errText: string): boolean {
+  return status === 429 || errText.includes('PUBLIC_API_BILLING_LIMIT_EXCEEDED')
+}
+
+function airtableError(status: number, errText: string, message: string): Error {
+  const full = `${message}: ${status} ${errText}`
+  return isAirtableUnavailable(status, errText) ? new AirtableUnavailableError(full) : new Error(full)
 }
 
 // singleSelect fields come back as { id, name, color } instead of a plain string.
@@ -82,12 +95,95 @@ function branchFormula(scope: Scope): string | null {
   return terms.length === 1 ? terms[0] : `OR(${terms.join(',')})`
 }
 
+// --- Read cache ---
+//
+// Airtable bills per request, and every page load used to re-list whole tables even when nothing
+// had changed seconds earlier. Full-table lists are cached briefly, keyed on the complete scoped
+// filterByFormula — so one scope can never be served another scope's rows, the same guarantee
+// the uncached path gives. The promise is what's cached, so concurrent identical reads (the
+// dashboard's Promise.all, two tabs loading at once) share a single fetch.
+//
+// Every write helper below invalidates its table, so a user's own change is visible on their
+// next load. The cache is per serverless instance, though: a write handled by one instance can't
+// clear another's copy, so a reload landing elsewhere may be up to the TTL stale. Only user-
+// facing list() reads use it — AirtableClient.system() (cron/webhooks) and the find-before-write
+// lookups (findOne/findMany) always go to Airtable, since they decide what gets written.
+
+const readCache = new Map<string, { expires: number; promise: Promise<AirtableRecord[]> }>()
+
+function cacheTtlMs(): number {
+  const raw = process.env.AIRTABLE_CACHE_TTL_SECONDS
+  const seconds = raw === undefined || raw === '' ? 60 : Number(raw)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0
+}
+
+function invalidateTable(table: string): void {
+  const prefix = `${table}|`
+  for (const key of readCache.keys()) {
+    if (key.startsWith(prefix)) readCache.delete(key)
+  }
+}
+
+function cachedRead(table: string, formula: string | null, load: () => Promise<AirtableRecord[]>): Promise<AirtableRecord[]> {
+  const ttl = cacheTtlMs()
+  if (ttl === 0) return load()
+
+  const key = `${table}|${formula ?? ''}`
+  const now = Date.now()
+  const hit = readCache.get(key)
+  if (hit && hit.expires > now) return hit.promise
+
+  const promise = load()
+  readCache.set(key, { expires: now + ttl, promise })
+  // A failed read must not be served to the next caller for the rest of the TTL.
+  promise.catch(() => {
+    if (readCache.get(key)?.promise === promise) readCache.delete(key)
+  })
+  return promise
+}
+
+/** 401/403 while listing — list() reports these as an empty result rather than an error. */
+class AirtableAuthError extends Error {}
+
+async function fetchAllRecords(table: string, formula: string | null): Promise<AirtableRecord[]> {
+  const out: AirtableRecord[] = []
+  let offset: string | undefined
+
+  // Airtable caps a page at 100 records. This used to ignore `offset` and truncate
+  // silently; with a per-branch filter on top, each branch would truncate independently.
+  do {
+    const url = new URL(tableUrl(table))
+    url.searchParams.set('pageSize', '100')
+    if (formula) url.searchParams.set('filterByFormula', formula)
+    if (offset) url.searchParams.set('offset', offset)
+
+    const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' })
+
+    if (res.status === 401 || res.status === 403) {
+      throw new AirtableAuthError(`Auth error listing ${table}: ${res.status}`)
+    }
+    if (!res.ok) {
+      const errText = await res.text()
+      throw airtableError(res.status, errText, `Airtable list ${table} failed`)
+    }
+
+    const data = (await res.json()) as { records: AirtableRecord[]; offset?: string }
+    out.push(...data.records)
+    offset = data.offset
+  } while (offset)
+
+  return out
+}
+
+// --- Writes ---
+
 async function patchRecord(table: string, recordId: string, fields: Record<string, unknown>): Promise<void> {
   const res = await fetch(tableUrl(table, `/${recordId}`), {
     method: 'PATCH',
     headers: getHeaders(),
     body: JSON.stringify({ fields, typecast: true }),
   })
+  invalidateTable(table)
   if (!res.ok) {
     const errText = await res.text()
     console.error(`[AIRTABLE] Failed to update ${table} record ${recordId}: ${res.status} ${errText}`)
@@ -100,9 +196,10 @@ async function createRecord(table: string, fields: Record<string, unknown>): Pro
     headers: getHeaders(),
     body: JSON.stringify({ fields, typecast: true }),
   })
+  invalidateTable(table)
   if (!res.ok) {
     const errText = await res.text()
-    throw new Error(`Airtable create record in ${table} failed: ${res.status} ${errText}`)
+    throw airtableError(res.status, errText, `Airtable create record in ${table} failed`)
   }
   return (await res.json()) as AirtableRecord
 }
@@ -112,9 +209,10 @@ async function createRecord(table: string, fields: Record<string, unknown>): Pro
 // something is gone that Airtable still has.
 async function deleteRecord(table: string, recordId: string): Promise<void> {
   const res = await fetch(tableUrl(table, `/${recordId}`), { method: 'DELETE', headers: getHeaders() })
+  invalidateTable(table)
   if (!res.ok) {
     const errText = await res.text()
-    throw new Error(`Airtable delete record in ${table} failed: ${res.status} ${errText}`)
+    throw airtableError(res.status, errText, `Airtable delete record in ${table} failed`)
   }
 }
 
@@ -128,11 +226,51 @@ async function deleteRecordsBatch(table: string, recordIds: string[]): Promise<v
     for (const id of chunk) url.searchParams.append('records[]', id)
 
     const res = await fetch(url, { method: 'DELETE', headers: getHeaders() })
+    invalidateTable(table)
     if (!res.ok) {
       const errText = await res.text()
-      throw new Error(`Airtable batch delete in ${table} failed: ${res.status} ${errText}`)
+      throw airtableError(res.status, errText, `Airtable batch delete in ${table} failed`)
     }
   }
+}
+
+// Batched counterparts of patchRecord/createRecord, 10 records per request (Airtable's max), for
+// loops that would otherwise spend one request per row — the daily overdue sweep and the monthly
+// billing reset. Unlike patchRecord these throw on failure, so the cron callers can report it.
+async function patchRecordsBatch(table: string, updates: { id: string; fields: Record<string, unknown> }[]): Promise<void> {
+  for (let i = 0; i < updates.length; i += 10) {
+    const chunk = updates.slice(i, i + 10)
+    const res = await fetch(tableUrl(table), {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ records: chunk, typecast: true }),
+    })
+    invalidateTable(table)
+    if (!res.ok) {
+      const errText = await res.text()
+      throw airtableError(res.status, errText, `Airtable batch update in ${table} failed`)
+    }
+  }
+}
+
+async function createRecordsBatch(table: string, fieldsList: Record<string, unknown>[]): Promise<AirtableRecord[]> {
+  const out: AirtableRecord[] = []
+  for (let i = 0; i < fieldsList.length; i += 10) {
+    const chunk = fieldsList.slice(i, i + 10)
+    const res = await fetch(tableUrl(table), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ records: chunk.map((fields) => ({ fields })), typecast: true }),
+    })
+    invalidateTable(table)
+    if (!res.ok) {
+      const errText = await res.text()
+      throw airtableError(res.status, errText, `Airtable batch create in ${table} failed`)
+    }
+    const data = (await res.json()) as { records: AirtableRecord[] }
+    out.push(...data.records)
+  }
+  return out
 }
 
 // --- Airtable record mappers ---
@@ -158,8 +296,7 @@ function mapRecordToStudent(record: AirtableRecord): Student {
     grade: (f.grade as string) || undefined,
     batchId: (f.batch_timing as string) || undefined,
     branch: selectName(f.branch) || undefined,
-    // Airtable omits an unchecked checkbox from the response entirely (undefined, not false) —
-    // same convention as `present`/`homework_done` in mapRecordToAttendance.
+    // Airtable omits an unchecked checkbox from the response entirely (undefined, not false).
     online: f.online === true,
     pausedMonth: (f.paused_month as string) || undefined,
   }
@@ -204,20 +341,6 @@ function mapRecordToExpense(record: AirtableRecord): Expense {
     amount: Number(f.amount) || 0,
     category: (f.category as string) || 'Other',
     date: (f.date as string) ?? '',
-    branch: selectName(f.branch) || undefined,
-  }
-}
-
-// Airtable omits an unchecked checkbox from the response entirely (undefined, not false).
-function mapRecordToAttendance(record: AirtableRecord): Attendance {
-  const f = record.fields
-  return {
-    id: record.id,
-    studentId: (f.student_id as string) ?? '',
-    studentName: (f.student_name as string) ?? '',
-    date: (f.date as string) ?? '',
-    present: f.present === true,
-    homeworkDone: f.homework_done === true,
     branch: selectName(f.branch) || undefined,
   }
 }
@@ -275,7 +398,10 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
 // site that forgot to. See skill.md "Pattern B".
 
 export class AirtableClient {
-  private constructor(private readonly scope: Scope) {}
+  private constructor(
+    private readonly scope: Scope,
+    private readonly cacheReads = true
+  ) {}
 
   /** Build a client for a signed-in user. Normal path — use this from route handlers. */
   static forScope(scope: Scope): AirtableClient {
@@ -285,47 +411,41 @@ export class AirtableClient {
   /**
    * Cron jobs and inbound webhooks only. Bypasses branch filtering by design — they have no
    * user session. Named rather than implicit so it greps.
+   *
+   * Never reads through the cache: the monthly reset decides who to bill from what it reads, so
+   * a stale copy from another instance could double-bill. Crons run rarely; the saving is nil.
    */
   static system(): AirtableClient {
-    return new AirtableClient(systemScope())
+    return new AirtableClient(systemScope(), false)
   }
 
   static isConfigured(): boolean {
     return !!(process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID)
   }
 
-  private async list<T>(table: string, mapper: (r: AirtableRecord) => T): Promise<T[]> {
+  /**
+   * Every list read. `extraFormula` narrows further (e.g. only overdue payments) and is always
+   * ANDed with the scope formula, never in place of it. Mapping happens after the cache, so each
+   * caller gets fresh objects and mutating one can't alter what's cached.
+   */
+  private async list<T>(table: string, mapper: (r: AirtableRecord) => T, extraFormula?: string): Promise<T[]> {
     if (!AirtableClient.isConfigured()) return []
 
-    const formula = branchFormula(this.scope)
-    const out: T[] = []
-    let offset: string | undefined
+    const scopeFormula = branchFormula(this.scope)
+    const formula =
+      scopeFormula && extraFormula ? `AND(${scopeFormula}, ${extraFormula})` : scopeFormula ?? extraFormula ?? null
+    const load = () => fetchAllRecords(table, formula)
 
-    // Airtable caps a page at 100 records. This used to ignore `offset` and truncate
-    // silently; with a per-branch filter on top, each branch would truncate independently.
-    do {
-      const url = new URL(tableUrl(table))
-      url.searchParams.set('pageSize', '100')
-      if (formula) url.searchParams.set('filterByFormula', formula)
-      if (offset) url.searchParams.set('offset', offset)
-
-      const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' })
-
-      if (res.status === 401 || res.status === 403) {
-        console.error(`[AIRTABLE] Auth error listing ${table}: ${res.status}`)
+    try {
+      const records = await (this.cacheReads ? cachedRead(table, formula, load) : load())
+      return records.map(mapper)
+    } catch (err) {
+      if (err instanceof AirtableAuthError) {
+        console.error(`[AIRTABLE] ${err.message}`)
         return []
       }
-      if (!res.ok) {
-        const errText = await res.text()
-        throw new Error(`Airtable list ${table} failed: ${res.status} ${errText}`)
-      }
-
-      const data = (await res.json()) as { records: AirtableRecord[]; offset?: string }
-      out.push(...data.records.map(mapper))
-      offset = data.offset
-    } while (offset)
-
-    return out
+      throw err
+    }
   }
 
   /**
@@ -393,10 +513,13 @@ export class AirtableClient {
    *
    * Runs BEFORE patchRecord, never inside it — patchRecord logs and returns void on a non-OK
    * response, so a check placed within it would fail open.
+   *
+   * Returns the record it had to fetch, so a caller that needs the record's fields anyway can
+   * skip a second request for the same row. Null when nothing was fetched (all-branches scope).
    */
-  private async assertInScope(table: string, recordId: string): Promise<void> {
-    if (this.scope.branches === ALL_BRANCHES) return
-    if (!AirtableClient.isConfigured()) return
+  private async assertInScope(table: string, recordId: string): Promise<AirtableRecord | null> {
+    if (this.scope.branches === ALL_BRANCHES) return null
+    if (!AirtableClient.isConfigured()) return null
 
     const res = await fetch(tableUrl(table, `/${encodeURIComponent(recordId)}`), {
       headers: getHeaders(),
@@ -405,7 +528,12 @@ export class AirtableClient {
 
     if (res.status === 404) throw new ScopeError('not_found')
     if (!res.ok) {
-      console.error(`[AIRTABLE] Scope lookup failed for ${table}/${recordId}: ${res.status}`)
+      const errText = await res.text()
+      console.error(`[AIRTABLE] Scope lookup failed for ${table}/${recordId}: ${res.status} ${errText}`)
+      // Still fails closed either way — this only changes what the user is told.
+      if (isAirtableUnavailable(res.status, errText)) {
+        throw new AirtableUnavailableError(`Airtable scope lookup failed: ${res.status} ${errText}`)
+      }
       throw new ScopeError('lookup_failed')
     }
 
@@ -416,14 +544,13 @@ export class AirtableClient {
       // the endpoint into an id oracle.
       throw new ScopeError('forbidden')
     }
+    return record
   }
 
   /**
-   * Single-field targeted read for the attendance-schedule check in createAttendance. Does not
-   * throw on failure — the caller already ran assertInScope immediately before this, so a
-   * transient read failure here should skip the secondary schedule check rather than fail the
-   * whole attendance write. Duplicates assertInScope's own fetch of the same record; that
-   * duplication already exists as the codebase's accepted pattern (see getRecordBranch).
+   * Reads a student the caller has already authorized. Only needed when assertInScope didn't
+   * fetch it (all-branches scope) — otherwise reuse the record assertInScope returned. Does not
+   * throw on failure: callers treat a missing record as "skip the secondary step".
    */
   private async getStudentRecord(studentId: string): Promise<AirtableRecord | null> {
     if (!AirtableClient.isConfigured()) return null
@@ -433,11 +560,6 @@ export class AirtableClient {
     })
     if (!res.ok) return null
     return (await res.json()) as AirtableRecord
-  }
-
-  private async getStudentBatchId(studentId: string): Promise<string | undefined> {
-    const record = await this.getStudentRecord(studentId)
-    return (record?.fields.batch_timing as string) || undefined
   }
 
   // --- Reads ---
@@ -458,15 +580,13 @@ export class AirtableClient {
     return this.list(TABLES.expenses, mapRecordToExpense)
   }
 
-  async getAttendance(): Promise<Attendance[]> {
-    return this.list(TABLES.attendance, mapRecordToAttendance)
-  }
-
   async getStats(): Promise<DashboardStatsResponse> {
+    // computeStats only uses Payments for the overdue count, so only overdue rows are read —
+    // the full table grows by one row per student per month.
     const [students, leads, payments, expenses] = await Promise.all([
       this.getStudents(),
       this.getLeads(),
-      this.getPayments(),
+      this.list(TABLES.payments, mapRecordToPayment, `{status}='overdue'`),
       this.getExpenses(),
     ])
 
@@ -690,13 +810,27 @@ export class AirtableClient {
     await patchRecord(TABLES.payments, paymentId, { reminder_sent_at: data.reminderSentAt })
   }
 
-  async markPaymentOverdue(paymentId: string): Promise<void> {
-    await this.assertInScope(TABLES.payments, paymentId)
+  /** Batched markReminderSent for the daily cron — 10 rows per request instead of 1. */
+  async markRemindersSent(paymentIds: string[], data: { reminderSentAt: string }): Promise<void> {
+    for (const id of paymentIds) await this.assertInScope(TABLES.payments, id)
     if (!AirtableClient.isConfigured()) {
-      console.log(`[AIRTABLE MOCK] markPaymentOverdue`, { paymentId })
+      console.log(`[AIRTABLE MOCK] markRemindersSent`, { paymentIds, ...data })
       return
     }
-    await patchRecord(TABLES.payments, paymentId, { status: 'overdue' })
+    await patchRecordsBatch(
+      TABLES.payments,
+      paymentIds.map((id) => ({ id, fields: { reminder_sent_at: data.reminderSentAt } }))
+    )
+  }
+
+  /** Daily cron: flag a set of pending payments overdue, 10 rows per request. */
+  async markPaymentsOverdue(paymentIds: string[]): Promise<void> {
+    for (const id of paymentIds) await this.assertInScope(TABLES.payments, id)
+    if (!AirtableClient.isConfigured()) {
+      console.log(`[AIRTABLE MOCK] markPaymentsOverdue`, { paymentIds })
+      return
+    }
+    await patchRecordsBatch(TABLES.payments, paymentIds.map((id) => ({ id, fields: { status: 'overdue' } })))
   }
 
   /**
@@ -722,8 +856,8 @@ export class AirtableClient {
     const currentYM = now.getUTCFullYear() * 12 + now.getUTCMonth()
     const dueDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().split('T')[0]
 
-    let created = 0
     let skipped = 0
+    const newDues: Record<string, unknown>[] = []
 
     // Same "YYYY-MM" a pause stores. Taken from dueDate so it uses the identical UTC parts as
     // the row being written, rather than re-deriving the month a second way.
@@ -749,7 +883,7 @@ export class AirtableClient {
         continue
       }
 
-      await createRecord(TABLES.payments, {
+      newDues.push({
         student_id: student.id,
         student_name: student.name,
         amount: student.monthlyFee,
@@ -757,11 +891,24 @@ export class AirtableClient {
         status: 'pending',
         branch: student.branch ?? '',
       })
-      await patchRecord(TABLES.students, student.id, { payment_status: 'pending' })
-      created++
     }
 
-    return { created, skipped }
+    // Batched, 10 rows per request. If a chunk fails partway, re-running is safe: students whose
+    // due was already written are skipped by the check above.
+    const created = await createRecordsBatch(TABLES.payments, newDues)
+
+    // Best-effort, like the per-row patchRecord this replaces: the dues are what matter, and a
+    // re-run would skip these students, so a failure here must not fail the whole reset.
+    try {
+      await patchRecordsBatch(
+        TABLES.students,
+        created.map((r) => ({ id: r.fields.student_id as string, fields: { payment_status: 'pending' } }))
+      )
+    } catch (err) {
+      console.error('[MONTHLY RESET] could not set payment_status on students', err)
+    }
+
+    return { created: created.length, skipped }
   }
 
   async createStudent(data: {
@@ -823,14 +970,22 @@ export class AirtableClient {
     // from Payments, see computeStats) until either the 1st-of-month reset cron runs or someone
     // manually marks them paid. Creating the first due here mirrors what runMonthlyReset does
     // for every existing student each month.
-    await createRecord(TABLES.payments, {
-      student_id: record.id,
-      student_name: data.name,
-      amount: data.monthlyFee,
-      due_date: enrolledDate,
-      status: 'pending',
-      branch: data.branch,
-    })
+    //
+    // The student row already exists at this point, so a failure here must not fail the request:
+    // the admin would see an error, retry, and create a duplicate student. The missing due is
+    // recoverable with scripts/backfill-missing-payments.js.
+    try {
+      await createRecord(TABLES.payments, {
+        student_id: record.id,
+        student_name: data.name,
+        amount: data.monthlyFee,
+        due_date: enrolledDate,
+        status: 'pending',
+        branch: data.branch,
+      })
+    } catch (err) {
+      console.error(`[CREATE STUDENT] payment row failed for ${record.id}`, err)
+    }
 
     return mapRecordToStudent(record)
   }
@@ -865,7 +1020,7 @@ export class AirtableClient {
    * and `assertInScope` still keeps it to their own students.
    */
   async setStudentPaused(studentId: string, paused: boolean): Promise<void> {
-    await this.assertInScope(TABLES.students, studentId)
+    const studentRecord = await this.assertInScope(TABLES.students, studentId)
     const month = monthKey()
 
     if (!AirtableClient.isConfigured()) {
@@ -893,7 +1048,8 @@ export class AirtableClient {
 
     if (openDues.length > 0) return
 
-    const record = await this.getStudentRecord(studentId)
+    // Read before the paused_month patch above, but none of the fields used here changed.
+    const record = studentRecord ?? (await this.getStudentRecord(studentId))
     if (!record) return
 
     const f = record.fields
@@ -998,77 +1154,6 @@ export class AirtableClient {
   }
 
   /**
-   * Upsert: re-marking a student for a date they already have a row for corrects that row
-   * instead of accumulating a duplicate. `assertInScope` on the student id guards against a
-   * caller attributing attendance to a foreign-branch student — the UI's own dropdown is
-   * already scoped, but the API must not trust that.
-   */
-  async createAttendance(data: {
-    studentId: string
-    studentName: string
-    date: string
-    present: boolean
-    homeworkDone: boolean
-    branch: string
-  }): Promise<Attendance> {
-    if (!isValidBranchId(data.branch)) {
-      throw new Error(`Refusing to create an attendance record in unknown branch "${data.branch}"`)
-    }
-
-    if (!AirtableClient.isConfigured()) {
-      const attendance: Attendance = {
-        id: `at-mock-${Date.now()}`,
-        studentId: data.studentId,
-        studentName: data.studentName,
-        date: data.date,
-        present: data.present,
-        homeworkDone: data.homeworkDone,
-        branch: data.branch,
-      }
-      console.log(`[AIRTABLE MOCK] Created attendance`, attendance)
-      return attendance
-    }
-
-    await this.assertInScope(TABLES.students, data.studentId)
-
-    // Opt-in: a student with no batch set skips this check entirely rather than blocking.
-    const studentBatchId = await this.getStudentBatchId(data.studentId)
-    if (studentBatchId) {
-      const mismatch = batchScheduleMismatchMessage(studentBatchId, data.date)
-      if (mismatch) throw new BatchScheduleError(mismatch)
-    }
-
-    // A plain {date}='...' comparison against Airtable's `date` field type silently matches
-    // nothing — the field evaluates to a datetime value in formulas, not the display string.
-    // DATETIME_FORMAT coerces it to a comparable ISO date string first.
-    const existing = await this.findOne(
-      TABLES.attendance,
-      `AND({student_id}='${escapeFormulaString(data.studentId)}', DATETIME_FORMAT({date}, 'YYYY-MM-DD')='${escapeFormulaString(data.date)}')`
-    )
-
-    const fields = {
-      present: data.present,
-      homework_done: data.homeworkDone,
-    }
-
-    if (existing) {
-      await this.assertInScope(TABLES.attendance, existing.id)
-      await patchRecord(TABLES.attendance, existing.id, fields)
-      return mapRecordToAttendance({ id: existing.id, fields: { ...existing.fields, ...fields } })
-    }
-
-    const record = await createRecord(TABLES.attendance, {
-      student_id: data.studentId,
-      student_name: data.studentName,
-      date: data.date,
-      branch: data.branch,
-      ...fields,
-    })
-
-    return mapRecordToAttendance(record)
-  }
-
-  /**
    * Hard delete, cascading to every linked Payment record — deletes the student's revenue
    * history too. Payments go first: if this fails partway, re-running deleteStudent just finds
    * fewer (or zero) remaining payments and picks up where it left off.
@@ -1114,26 +1199,17 @@ export class AirtableClient {
     await deleteRecord(TABLES.expenses, expenseId)
   }
 
-  async deleteAttendance(attendanceId: string): Promise<void> {
-    await this.assertInScope(TABLES.attendance, attendanceId)
-    if (!AirtableClient.isConfigured()) {
-      console.log(`[AIRTABLE MOCK] deleteAttendance`, { attendanceId })
-      return
-    }
-    await deleteRecord(TABLES.attendance, attendanceId)
-  }
-
   /**
    * Explicit scope gate for routes with side effects that happen *before* the mutation —
    * sending an email, say. Without it, an out-of-scope record id would still trigger the
    * side effect on its way to the 404.
    */
-  async assertAccessible(table: 'students' | 'leads' | 'payments' | 'expenses' | 'attendance', recordId: string): Promise<void> {
+  async assertAccessible(table: 'students' | 'leads' | 'payments' | 'expenses', recordId: string): Promise<void> {
     await this.assertInScope(TABLES[table], recordId)
   }
 
   /** Reads a single record's branch, for routes that must propagate it (e.g. lead → student). */
-  async getRecordBranch(table: 'students' | 'leads' | 'payments' | 'expenses' | 'attendance', recordId: string): Promise<string> {
+  async getRecordBranch(table: 'students' | 'leads' | 'payments' | 'expenses', recordId: string): Promise<string> {
     await this.assertInScope(TABLES[table], recordId)
     if (!AirtableClient.isConfigured()) return ''
 
@@ -1142,7 +1218,13 @@ export class AirtableClient {
       cache: 'no-store',
     })
     if (res.status === 404) throw new ScopeError('not_found')
-    if (!res.ok) throw new ScopeError('lookup_failed')
+    if (!res.ok) {
+      const errText = await res.text()
+      if (isAirtableUnavailable(res.status, errText)) {
+        throw new AirtableUnavailableError(`Airtable branch lookup failed: ${res.status} ${errText}`)
+      }
+      throw new ScopeError('lookup_failed')
+    }
 
     const record = (await res.json()) as AirtableRecord
     return selectName(record.fields.branch)

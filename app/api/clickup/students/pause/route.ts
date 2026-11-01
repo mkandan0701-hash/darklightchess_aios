@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
-import { ScopeError } from '@/lib/airtableClient'
+import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
 
 // Deliberately not superadmin-gated, unlike update-batch/update-online: pausing a student for a
 // month is routine branch admin work. assertInScope inside setStudentPaused still confines it to
@@ -23,7 +23,7 @@ export const POST = withAuth(async (req, { db, session }) => {
 
     return NextResponse.json({ success: true, studentId, paused })
   } catch (err) {
-    if (err instanceof ScopeError) throw err
+    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
     console.error('[SET STUDENT PAUSED ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to update pause status' }, { status: 500 })
   }

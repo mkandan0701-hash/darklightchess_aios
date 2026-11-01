@@ -9,7 +9,7 @@ import type { Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor, isStudentPaused, monthKey } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
-import { batchLabel, encodeBatch, parseBatch } from '@/lib/batches'
+import { batchInputError, batchLabel, encodeBatch, parseBatch } from '@/lib/batches'
 
 type FilterStatus = 'all' | 'paid' | 'pending' | 'overdue'
 
@@ -23,6 +23,7 @@ const FILTER_OPTIONS: { label: string; value: FilterStatus }[] = [
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [showAddModal, setShowAddModal] = useState(false)
@@ -39,11 +40,15 @@ export default function StudentsPage() {
   useEffect(() => {
     fetch('/api/clickup/students')
       .then((r) => r.json())
-      .then((d: { success: boolean; data: Student[] }) => {
+      .then((d: { success: boolean; data: Student[]; error?: string }) => {
         if (d.success) setStudents(d.data)
+        else setLoadError(d.error ?? 'Failed to load students')
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch(() => {
+        setLoadError('Failed to load students. Please refresh the page.')
+        setLoading(false)
+      })
   }, [])
 
   const handleAddStudent = async (values: StudentFormValues): Promise<boolean> => {
@@ -472,12 +477,16 @@ export default function StudentsPage() {
         </div>
       </div>
 
+      {loadError && (
+        <p className="text-sm text-error bg-red-50 border border-red-200 rounded-lg px-3 py-2">{loadError}</p>
+      )}
+
       {/* Table */}
       <Table
         columns={columns as unknown as Column<Record<string, unknown>>[]}
         data={filtered as unknown as Record<string, unknown>[]}
         loading={loading}
-        emptyMessage="No students found. Try adjusting your search or filter."
+        emptyMessage={loadError ? 'Students could not be loaded.' : 'No students found. Try adjusting your search or filter.'}
       />
 
       {/* Add Student Modal */}
@@ -515,11 +524,12 @@ export default function StudentsPage() {
             onChange={setEditBatch}
           />
           <p className="text-xs text-gray-500">Clear every day to unset this student&apos;s batch.</p>
+          {batchInputError(editBatch) && <p className="text-xs text-error">{batchInputError(editBatch)}</p>}
 
           <button
             onClick={handleSaveBatch}
-            disabled={editSubmitting}
-            className={`btn-primary w-full justify-center ${editSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
+            disabled={editSubmitting || !!batchInputError(editBatch)}
+            className={`btn-primary w-full justify-center ${editSubmitting || batchInputError(editBatch) ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             {editSubmitting ? 'Saving...' : 'Save Batch'}
           </button>

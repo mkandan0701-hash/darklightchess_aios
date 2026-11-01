@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
-import { ScopeError } from '@/lib/airtableClient'
+import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
 
 export const POST = withAuth(async (req, { db, session }) => {
   try {
@@ -17,7 +17,7 @@ export const POST = withAuth(async (req, { db, session }) => {
 
     return NextResponse.json({ success: true, studentId })
   } catch (err) {
-    if (err instanceof ScopeError) throw err
+    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
     console.error('[DELETE STUDENT ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to delete student' }, { status: 500 })
   }

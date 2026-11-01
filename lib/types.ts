@@ -60,16 +60,6 @@ export interface Expense {
   branch?: string
 }
 
-export interface Attendance {
-  id: string
-  studentId: string
-  studentName: string
-  date: string
-  present: boolean
-  homeworkDone: boolean
-  branch?: string
-}
-
 export interface DashboardStats {
   totalLeads: number
   activeStudents: number

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
-import { ScopeError } from '@/lib/airtableClient'
+import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
 
 export const POST = withAuth(async (request, { db, scope, session }) => {
   let body: Record<string, unknown>
@@ -55,7 +55,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
 
     return NextResponse.json({ success: true, data: student })
   } catch (err) {
-    if (err instanceof ScopeError) throw err
+    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
     console.error('[LEAD CONVERT ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to convert lead' }, { status: 500 })
   }

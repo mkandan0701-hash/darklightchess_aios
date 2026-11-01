@@ -3,7 +3,7 @@ import { formatReceiptEmail } from '@/lib/receiptGenerator'
 import { sendReceiptEmail } from '@/lib/emailSender'
 import { sendReceiptWhatsApp } from '@/lib/whatsappSender'
 import { withAuth } from '@/lib/auth/withAuth'
-import { ScopeError } from '@/lib/airtableClient'
+import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
 
 export const POST = withAuth(async (req, { db, session }) => {
   try {
@@ -67,7 +67,7 @@ export const POST = withAuth(async (req, { db, session }) => {
   } catch (err) {
     // Re-thrown so withAuth's catch turns it into a 404 — a cross-branch record id must not
     // surface as a generic 500 here, which would leak that the record exists but is denied.
-    if (err instanceof ScopeError) throw err
+    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
     console.error('[MARK PAID ERROR]', err)
     return NextResponse.json({ error: 'Failed to mark student as paid' }, { status: 500 })
   }

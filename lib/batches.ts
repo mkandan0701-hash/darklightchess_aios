@@ -6,8 +6,7 @@
 // still parse, so students created back then keep working and are converted to the new format the
 // next time their batch is edited. Nothing writes the legacy format any more.
 //
-// Zero I/O, zero Node-only APIs — safe to import from client components and server code alike,
-// which is why the day-of-week check lives here rather than being duplicated per call site.
+// Zero I/O, zero Node-only APIs — safe to import from client components and server code alike.
 
 export interface BatchSchedule {
   /** Date.getDay() values this batch meets on, sorted ascending: 0=Sun..6=Sat. */
@@ -17,12 +16,6 @@ export interface BatchSchedule {
   endTime: string
 }
 
-export interface WeekGroup {
-  label: string
-  dates: string[]
-}
-
-const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /** Day toggles for the batch picker, Monday-first — how a timetable is normally read. */
@@ -53,6 +46,19 @@ function sortedUniqueDays(days: number[]): number[] {
 
 export function isValidTime(time: string): boolean {
   return TIME_RE.test(time)
+}
+
+/**
+ * Why a picker's current state can't be saved, or null if it can. No days picked is valid — it
+ * means "no batch". Zero-padded "HH:MM" strings compare correctly as plain strings.
+ */
+export function batchInputError(schedule: BatchSchedule): string | null {
+  if (schedule.days.length === 0) return null
+  if (!isValidTime(schedule.startTime) || !isValidTime(schedule.endTime)) {
+    return 'Enter both a start and an end time for the batch.'
+  }
+  if (schedule.endTime <= schedule.startTime) return 'Batch end time must be after the start time.'
+  return null
 }
 
 export function encodeBatch(schedule: BatchSchedule): string {
@@ -113,68 +119,4 @@ export function batchLabel(code: string | undefined | null): string {
   const batch = parseBatch(code)
   if (!batch) return '—'
   return `${dayPatternLabel(code)} · ${timeSlotLabel(code)}`
-}
-
-/**
- * Parses a "YYYY-MM-DD" string into its weekday without going through UTC. `new
- * Date(dateStr).getDay()` parses a bare date string as UTC midnight, so `.getDay()` reflects the
- * *local* day after UTC→local conversion — which can disagree with the intended calendar date
- * depending on timezone. Building the Date from explicit y/m/d components sidesteps that, so the
- * client (likely IST) and the server (likely UTC) always agree on which weekday a date means.
- */
-export function dayOfWeekFromDateString(dateStr: string): number {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return new Date(y, m - 1, d).getDay()
-}
-
-export function matchesBatchDay(code: string, dateStr: string): boolean {
-  return parseBatch(code)?.days.includes(dayOfWeekFromDateString(dateStr)) ?? false
-}
-
-/** Null if the batch is unknown/unset (can't validate) or the date matches the schedule. */
-export function batchScheduleMismatchMessage(code: string, dateStr: string): string | null {
-  const batch = parseBatch(code)
-  if (!batch) return null
-  const dow = dayOfWeekFromDateString(dateStr)
-  if (batch.days.includes(dow)) return null
-  const days = batch.days.map((d) => DOW_NAMES[d]).join(', ')
-  return `This student's batch meets ${days} — ${DOW_NAMES[dow]} isn't a scheduled day.`
-}
-
-function toDateString(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-}
-
-/** Every "YYYY-MM-DD" date in the given 1-indexed month falling on one of these weekdays. */
-export function classDatesInMonth(days: number[], year: number, month: number): string[] {
-  if (days.length === 0) return []
-  const daysInMonth = new Date(year, month, 0).getDate()
-  const dates: string[] = []
-  for (let day = 1; day <= daysInMonth; day++) {
-    if (days.includes(new Date(year, month - 1, day).getDay())) {
-      dates.push(toDateString(year, month, day))
-    }
-  }
-  return dates
-}
-
-/**
- * Buckets a sorted list of "YYYY-MM-DD" dates (as produced by `classDatesInMonth`, always within a
- * single calendar month) into Sunday-start weeks. A week's day-of-month-minus-weekday is constant
- * across all dates that fall in it, so it doubles as a cheap grouping key without needing a second
- * Date object per date.
- */
-export function groupDatesByWeek(dates: string[]): WeekGroup[] {
-  const groups: WeekGroup[] = []
-  let currentWeekKey: number | null = null
-  for (const dateStr of dates) {
-    const day = Number(dateStr.split('-')[2])
-    const weekKey = day - dayOfWeekFromDateString(dateStr)
-    if (currentWeekKey === null || weekKey !== currentWeekKey) {
-      currentWeekKey = weekKey
-      groups.push({ label: `Week ${groups.length + 1}`, dates: [] })
-    }
-    groups[groups.length - 1].dates.push(dateStr)
-  }
-  return groups
 }

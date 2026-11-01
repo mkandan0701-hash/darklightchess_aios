@@ -38,24 +38,25 @@ export async function GET(request: NextRequest) {
   let newlyMarkedOverdue = 0
 
   if (dayOfMonth >= 8) {
-    for (const payment of payments) {
-      if (payment.status !== 'pending' || !payment.dueDate) continue
+    const toMarkOverdue = payments.filter((payment) => {
+      if (payment.status !== 'pending' || !payment.dueDate) return false
 
       const due = new Date(payment.dueDate)
       if (isNaN(due.getTime())) {
         console.warn(`[CRON WARN] Unparseable dueDate for payment ${payment.id}: "${payment.dueDate}"`)
-        continue
+        return false
       }
-      const dueYM = due.getUTCFullYear() * 12 + due.getUTCMonth()
+      return due.getUTCFullYear() * 12 + due.getUTCMonth() <= currentYM
+    })
 
-      if (dueYM <= currentYM) {
-        try {
-          await db.markPaymentOverdue(payment.id)
-          payment.status = 'overdue'
-          newlyMarkedOverdue++
-        } catch (err) {
-          console.error(`[CRON ERROR] Failed to mark payment ${payment.id} overdue:`, err)
-        }
+    // One batched write (10 rows per request) rather than one request per payment.
+    if (toMarkOverdue.length > 0) {
+      try {
+        await db.markPaymentsOverdue(toMarkOverdue.map((p) => p.id))
+        for (const payment of toMarkOverdue) payment.status = 'overdue'
+        newlyMarkedOverdue = toMarkOverdue.length
+      } catch (err) {
+        console.error('[CRON ERROR] Failed to mark payments overdue:', err)
       }
     }
   }
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest) {
   let emailsSent = 0
   let successCount = 0
   let failureCount = 0
+  const remindedPaymentIds: string[] = []
 
   for (const payment of overduePayments) {
     // NOTE: payment.studentId comes from Airtable's student_id field, which predates the
@@ -85,14 +87,23 @@ export async function GET(request: NextRequest) {
     try {
       await sendOverdueReminderEmail(student.email, student.name, payment.amountDue, daysOverdue)
       emailsSent++
-
-      await db.markReminderSent(payment.id, { reminderSentAt: timestamp })
+      remindedPaymentIds.push(payment.id)
 
       console.log(`[REMINDER SENT] { studentId: '${student.id}', studentName: '${student.name}' }`)
       successCount++
     } catch (err) {
       console.error(`[CRON ERROR] Failed for student ${student.name}:`, err)
       failureCount++
+    }
+  }
+
+  // Stamped in one batched write after the loop — this ran once per overdue payment per day
+  // and was the single largest consumer of the Airtable monthly request quota.
+  if (remindedPaymentIds.length > 0) {
+    try {
+      await db.markRemindersSent(remindedPaymentIds, { reminderSentAt: timestamp })
+    } catch (err) {
+      console.error('[CRON ERROR] Failed to record reminder_sent_at:', err)
     }
   }
 
