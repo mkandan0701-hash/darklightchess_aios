@@ -119,6 +119,24 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Online / Offline split — superadmin only (the stats API omits it for admins) */}
+      {stats?.monthlyRevenueOnline !== undefined && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatCard
+            label={`Offline Revenue · ${stats.activeStudentsOffline ?? 0} students`}
+            value={formatCurrency(stats.monthlyRevenueOffline ?? 0)}
+            icon={<RevenueIcon />}
+            color="primary"
+          />
+          <StatCard
+            label={`Online Revenue · ${stats.activeStudentsOnline ?? 0} students`}
+            value={formatCurrency(stats.monthlyRevenueOnline ?? 0)}
+            icon={<RevenueIcon />}
+            color="warning"
+          />
+        </div>
+      )}
+
       {/* Finance Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <StatCard

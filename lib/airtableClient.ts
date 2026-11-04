@@ -396,9 +396,11 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
   // this month are left out: no due is raised for them, so counting their fee would overstate
   // the month. They stay in activeStudents — a pause is a break, not an un-enrolment.
   const pausedThisMonth = monthKey(now)
-  const monthlyRevenue = students
-    .filter((s) => s.pausedMonth !== pausedThisMonth)
-    .reduce((sum, s) => sum + s.monthlyFee, 0)
+  const billable = students.filter((s) => s.pausedMonth !== pausedThisMonth)
+  const sumFees = (list: Student[]) => list.reduce((sum, s) => sum + s.monthlyFee, 0)
+  const monthlyRevenueOnline = sumFees(billable.filter((s) => s.online))
+  const monthlyRevenueOffline = sumFees(billable.filter((s) => !s.online))
+  const monthlyRevenue = monthlyRevenueOnline + monthlyRevenueOffline
 
   const monthlyExpenses = expenses
     .filter((e) => e.date && inCurrentMonth(e.date))
@@ -410,6 +412,10 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
     totalLeads: leads.length,
     activeStudents: students.length,
     monthlyRevenue,
+    monthlyRevenueOnline,
+    monthlyRevenueOffline,
+    activeStudentsOnline: students.filter((s) => s.online).length,
+    activeStudentsOffline: students.filter((s) => !s.online).length,
     monthlyExpenses,
     netProfit: monthlyRevenue - monthlyExpenses,
     overduePayments: payments.filter((p) => p.status === 'overdue').length,

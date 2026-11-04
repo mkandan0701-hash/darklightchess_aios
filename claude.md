@@ -176,11 +176,10 @@ camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
 | **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
 
-**Expenses is a manually-created table** (there's no `add-expenses-field.js` equivalent to
-`add-branch-field.js`) — before this feature ships, create it in the base with `description` (text),
-`amount` (number), `category` (single line text or singleSelect), `date` (date), and a `branch`
-singleSelect with the same 3 branch-id choices pre-created as the other tables, for the same
-typecast-safety reason as below.
+**Expenses table** is created by `scripts/add-expenses-table.js` (`description`, `amount`,
+`category`, `date`, and a `branch` singleSelect with the 3 branch-id choices pre-created, for the
+same typecast-safety reason as below). It was missing from the base until 2026-11-01, which made
+every expense add on `/finance` fail — run the script on any new base.
 
 **Attendance tracking was removed on 2026-10-27** (the `/attendance` page, its API routes, and the
 monthly register/report) to cut Airtable API usage. The `Attendance` table and its rows were left
@@ -387,6 +386,12 @@ call site that forgot to pass a scope is a type error.
   branch admin's Net Profit there is computed only from their own branch-scoped `getStats()` result —
   the same scoping every other page already relies on — so this doesn't expose whole-business figures
   to a branch admin.
+- **Online vs offline revenue is split by the student's `online` flag, superadmin only.** `computeStats`
+  partitions the same billable (non-paused) students into `monthlyRevenueOnline`/`Offline` and
+  `activeStudentsOnline`/`Offline` (they sum to `monthlyRevenue`/`activeStudents`); `/api/clickup/stats`
+  strips these fields for admins. `/payments` derives a payment's mode by joining `studentId` to the
+  student — unresolvable (legacy) rows count as Offline. Expenses have no mode, so Net Profit is not split.
+  `/students` has All/Offline/Online tabs for every role.
 - **Monthly billing arrears stack, by design.** `AirtableClient.runMonthlyReset()` (the
   `/api/cron/monthly-reset` cron, 1st of the month) always *creates* a new Payment due for every
   student rather than mutating an existing one — a student who never paid last month ends up with

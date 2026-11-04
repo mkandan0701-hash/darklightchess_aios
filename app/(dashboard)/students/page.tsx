@@ -20,12 +20,21 @@ const FILTER_OPTIONS: { label: string; value: FilterStatus }[] = [
   { label: 'Overdue', value: 'overdue' },
 ]
 
+type ModeTab = 'all' | 'offline' | 'online'
+
+const MODE_TABS: { label: string; value: ModeTab }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Offline', value: 'offline' },
+  { label: 'Online', value: 'online' },
+]
+
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [modeTab, setModeTab] = useState<ModeTab>('all')
   const [showAddModal, setShowAddModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
@@ -279,9 +288,15 @@ export default function StudentsPage() {
         s.email.toLowerCase().includes(search.toLowerCase()) ||
         s.phone.includes(search)
       const matchesStatus = filterStatus === 'all' || s.paymentStatus === filterStatus
-      return matchesSearch && matchesStatus
+      const matchesMode = modeTab === 'all' || (modeTab === 'online') === s.online
+      return matchesSearch && matchesStatus && matchesMode
     })
-  }, [students, search, filterStatus])
+  }, [students, search, filterStatus, modeTab])
+
+  const modeCounts = useMemo(() => {
+    const online = students.filter((s) => s.online).length
+    return { all: students.length, online, offline: students.length - online }
+  }, [students])
 
   const columns: Column<Student>[] = [
     { key: 'name', label: 'Name' },
@@ -440,6 +455,23 @@ export default function StudentsPage() {
           </p>
         </div>
         <button className="btn-primary" onClick={() => setShowAddModal(true)}>+ Add Student</button>
+      </div>
+
+      {/* Class mode tabs */}
+      <div className="flex gap-2 border-b border-gray-200 pb-2">
+        {MODE_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setModeTab(tab.value)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              modeTab === tab.value
+                ? 'bg-primary text-white'
+                : 'text-textDark hover:bg-gray-100'
+            }`}
+          >
+            {tab.label} ({modeCounts[tab.value]})
+          </button>
+        ))}
       </div>
 
       {/* Filters */}

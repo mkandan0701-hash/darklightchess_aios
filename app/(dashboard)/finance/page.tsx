@@ -179,6 +179,24 @@ export default function FinancePage() {
         />
       </div>
 
+      {/* Income split by class mode — superadmin only (the stats API omits it for admins) */}
+      {stats?.monthlyRevenueOnline !== undefined && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatCard
+            label={`Offline Income · ${stats.activeStudentsOffline ?? 0} students`}
+            value={formatCurrency(stats.monthlyRevenueOffline ?? 0)}
+            icon={<IncomeIcon />}
+            color="primary"
+          />
+          <StatCard
+            label={`Online Income · ${stats.activeStudentsOnline ?? 0} students`}
+            value={formatCurrency(stats.monthlyRevenueOnline ?? 0)}
+            icon={<IncomeIcon />}
+            color="warning"
+          />
+        </div>
+      )}
+
       {/* Per-branch breakdown — superadmin, all-branches view only */}
       {stats?.byBranch && stats.byBranch.length > 0 && (
         <div className="card">
@@ -192,6 +210,18 @@ export default function FinancePage() {
                     <dt>Income</dt>
                     <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenue)}</dd>
                   </div>
+                  {b.monthlyRevenueOnline !== undefined && (
+                    <>
+                      <div className="flex justify-between pl-3">
+                        <dt>Offline</dt>
+                        <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenueOffline ?? 0)}</dd>
+                      </div>
+                      <div className="flex justify-between pl-3">
+                        <dt>Online</dt>
+                        <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenueOnline)}</dd>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between">
                     <dt>Expenses</dt>
                     <dd className="font-medium text-textDark">{formatCurrency(b.monthlyExpenses)}</dd>

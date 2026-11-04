@@ -69,6 +69,11 @@ export interface DashboardStats {
   overduePayments: number
   leadsThisMonth: number
   studentsChange?: number
+  /** Online/offline split of `monthlyRevenue` and `activeStudents`. Superadmin only — the stats route strips these for admins. */
+  monthlyRevenueOnline?: number
+  monthlyRevenueOffline?: number
+  activeStudentsOnline?: number
+  activeStudentsOffline?: number
 }
 
 export interface BranchStats extends DashboardStats {

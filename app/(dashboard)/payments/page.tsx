@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Table from '@/components/Table'
 import type { Payment, Student, Column } from '@/lib/types'
 import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
-import { useIsAllBranches } from '@/components/SessionProvider'
+import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 
 // Payments history starts here; earlier months were cleared and the page doesn't page back past it.
@@ -19,7 +19,9 @@ export default function PaymentsPage() {
     const d = new Date()
     return { year: d.getFullYear(), month: d.getMonth() + 1 }
   })
+  const [modeFilter, setModeFilter] = useState<'all' | 'offline' | 'online'>('all')
   const showBranchColumn = useIsAllBranches()
+  const isSuperAdmin = useIsSuperAdmin()
 
   const shiftMonth = (delta: number) => {
     setMonthDate(({ year, month }) => {
@@ -145,14 +147,35 @@ export default function PaymentsPage() {
     [payments, monthKey]
   )
 
+  // A payment's class mode is its student's. A payment whose student can't be resolved (legacy
+  // hand-entered rows with a bad student_id) counts as Offline — the default mode.
+  const onlineById = useMemo(() => new Map(students.map((s) => [s.id, s.online])), [students])
+  const isOnline = (p: Payment) => onlineById.get(p.studentId) === true
+
+  const visiblePayments = useMemo(
+    () =>
+      isSuperAdmin && modeFilter !== 'all'
+        ? monthPayments.filter((p) => (modeFilter === 'online') === (onlineById.get(p.studentId) === true))
+        : monthPayments,
+    [monthPayments, modeFilter, isSuperAdmin, onlineById]
+  )
+
   const summary = useMemo(() => {
     const totalDue = monthPayments.reduce((s, p) => s + p.amountDue, 0)
     const totalCollected = monthPayments.reduce((s, p) => s + p.amountPaid, 0)
     const overdue = monthPayments.filter((p) => p.status === 'overdue').length
     const rate = totalDue ? Math.round((totalCollected / totalDue) * 100) : 0
 
-    return { totalDue, totalCollected, overdue, rate }
-  }, [monthPayments])
+    const byMode = (online: boolean) => {
+      const list = monthPayments.filter((p) => (onlineById.get(p.studentId) === true) === online)
+      return {
+        due: list.reduce((s, p) => s + p.amountDue, 0),
+        collected: list.reduce((s, p) => s + p.amountPaid, 0),
+      }
+    }
+
+    return { totalDue, totalCollected, overdue, rate, online: byMode(true), offline: byMode(false) }
+  }, [monthPayments, onlineById])
 
   const columns: Column<Payment>[] = [
     { key: 'studentName', label: 'Student' },
@@ -185,6 +208,17 @@ export default function PaymentsPage() {
         </span>
       ),
     },
+    ...(isSuperAdmin
+      ? [{
+          key: 'studentId',
+          label: 'Mode',
+          render: (_: unknown, row: Payment) => (
+            <span className={`status-badge ${isOnline(row) ? 'text-primary bg-blue-100' : 'text-gray-600 bg-gray-100'}`}>
+              {isOnline(row) ? 'Online' : 'Offline'}
+            </span>
+          ),
+        } as Column<Payment>]
+      : []),
     ...(showBranchColumn
       ? [{ key: 'branch', label: 'Branch', render: (v: unknown) => branchName(v as string) } as Column<Payment>]
       : []),
@@ -290,10 +324,47 @@ export default function PaymentsPage() {
         </div>
       </div>
 
+      {/* Online / Offline split — superadmin only */}
+      {isSuperAdmin && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="card text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Offline Due</p>
+              <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(summary.offline.due)}</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Offline Collected</p>
+              <p className="text-2xl font-bold text-success mt-1">{formatCurrency(summary.offline.collected)}</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Online Due</p>
+              <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(summary.online.due)}</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Online Collected</p>
+              <p className="text-2xl font-bold text-success mt-1">{formatCurrency(summary.online.collected)}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {(['all', 'offline', 'online'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setModeFilter(m)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${
+                  modeFilter === m ? 'bg-primary text-white' : 'bg-white border border-gray-300 text-textDark hover:bg-gray-50'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {/* Table */}
       <Table
         columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={monthPayments as unknown as Record<string, unknown>[]}
+        data={visiblePayments as unknown as Record<string, unknown>[]}
         loading={loading}
         emptyMessage="No payments due in this month."
         rowClassName={(row) =>
