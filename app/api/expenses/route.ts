@@ -6,7 +6,8 @@ export const GET = withAuth(async (_request, { db }) => {
   try {
     const expenses = await db.getExpenses()
     return NextResponse.json({ success: true, data: expenses })
-  } catch {
+  } catch (err) {
+    console.error('[LIST EXPENSES ERROR]', err)
     return NextResponse.json(
       { success: false, error: 'Failed to fetch expenses' },
       { status: 500 }
