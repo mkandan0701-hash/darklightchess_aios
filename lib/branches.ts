@@ -11,6 +11,7 @@ const FALLBACK_BRANCHES: readonly Branch[] = [
   { id: 'BRANCH_SAIBABA', name: 'Saibaba Colony' },
   { id: 'BRANCH_SOWRIPALAYAM', name: 'Sowripalayam' },
   { id: 'BRANCH_KUNIYAMUTHUR', name: 'Kuniyamuthur' },
+  { id: 'BRANCH_THOPPAMPATI', name: 'Thoppampati' },
 ]
 
 /** Label for a record whose branch field is empty. Reachable by superadmins only. */
@@ -63,11 +64,11 @@ export function branchName(id: string | undefined | null): string {
 
 /**
  * Branch assigned to records that can't otherwise be classified (backfill script, and
- * the legacy single-secret lead webhook). Falls back to the last configured branch.
+ * the legacy single-secret lead webhook). Falls back to the first configured branch
+ * (Saibaba Colony, the superadmin's home branch).
  */
 export function defaultBranchId(): string {
   const configured = process.env.BACKFILL_DEFAULT_BRANCH
   if (isValidBranchId(configured)) return configured
-  const branches = getBranches()
-  return branches[branches.length - 1].id
+  return getBranches()[0].id
 }

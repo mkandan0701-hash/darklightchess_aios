@@ -1,6 +1,6 @@
 # Darklight Chess Academy AIOS
 
-**Internal operations dashboard + 6 automation workflows for a 3-branch chess academy.**
+**Internal operations dashboard + 6 automation workflows for a 4-branch chess academy.**
 
 Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airtable is the system of record.**
 
@@ -94,7 +94,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 
 ## 3. Branch and role model
 
-The academy runs **3 branches**. Branch identity is stored in Airtable as an **opaque id**; the
+The academy runs **4 branches**. Branch identity is stored in Airtable as an **opaque id**; the
 human-readable name lives in the `ACADEMY_BRANCHES` env var, so renaming a branch is an env edit and
 never a data migration.
 
@@ -103,13 +103,14 @@ never a data migration.
 | `BRANCH_SAIBABA` | Saibaba Colony |
 | `BRANCH_SOWRIPALAYAM` | Sowripalayam |
 | `BRANCH_KUNIYAMUTHUR` | Kuniyamuthur |
+| `BRANCH_THOPPAMPATI` | Thoppampati (added 2026-11-13) |
 
 Two roles:
 
 | Role | Sees | Can mutate | Notes |
 |---|---|---|---|
-| `admin` | exactly one branch | records in that branch only | 2 of these — one per branch |
-| `superadmin` | all 3 branches + Unassigned | any record | 1 of these; home branch `BRANCH_SAIBABA`, which they run directly |
+| `admin` | exactly one branch | records in that branch only | 3 of these — one per non-Saibaba branch |
+| `superadmin` | all 4 branches + Unassigned | any record | 1 of these; home branch `BRANCH_SAIBABA`, which they run directly |
 
 Assignment:
 
@@ -117,6 +118,7 @@ Assignment:
   students land — see below)
 - Admin A → `BRANCH_SOWRIPALAYAM`
 - Admin B → `BRANCH_KUNIYAMUTHUR`
+- Admin C (`admin.thoppampati@darklight.in`) → `BRANCH_THOPPAMPATI`
 - Records created by the superadmin while viewing "All Branches" default to `BRANCH_SAIBABA`
 
 **Online lead intake.** Leads created through the external `lead-capture` webhook (the academy's
@@ -246,15 +248,13 @@ Two traps:
 
 ```json
 [
-  {"email":"admin.saibaba@darklight.in","name":"Admin A","role":"admin","branch":"BRANCH_SOWRIPALAYAM","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
-  {"email":"admin.sowripalayam@darklight.in","name":"Admin B","role":"admin","branch":"BRANCH_KUNIYAMUTHUR","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"admin.sowripalayam@darklight.in","name":"Admin A","role":"admin","branch":"BRANCH_SOWRIPALAYAM","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"admin.kuniyamuthur@darklight.in","name":"Admin B","role":"admin","branch":"BRANCH_KUNIYAMUTHUR","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
+  {"email":"admin.thoppampati@darklight.in","name":"Admin C","role":"admin","branch":"BRANCH_THOPPAMPATI","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"},
   {"email":"manikandan@darklight.in","name":"Manikandan","role":"superadmin","branch":"BRANCH_SAIBABA","passwordHash":"scrypt.16384.8.1.<salt>.<hash>"}
 ]
 ```
 
-⚠️ The account emails here are still placeholders from initial setup and no longer match their
-branch (`admin.saibaba@…` now manages Sowripalayam, not Saibaba) — the `branch` field is what's
-authoritative, not the email string. Rename the emails once real staff accounts replace these.
 
 ⚠️ The hash is `.`-delimited, not the traditional `$`-delimited `scrypt$N$r$p$salt$hash` — Next's
 env loader runs `dotenv-expand` over every value in `.env.local` and silently strips anything
@@ -333,7 +333,7 @@ call site that forgot to pass a scope is a type error.
 8. **Branch cookie is not a privilege** — as Admin A,
    `-b 'dl_session=<A>; dl_branch=BRANCH_KUNIYAMUTHUR'` → still only Sowripalayam.
    `POST /api/auth/branch` as Admin A → **403**.
-9. **Superadmin** — sees all 3, the per-branch cards sum to the totals, the switcher narrows and
+9. **Superadmin** — sees all 4, the per-branch cards sum to the totals, the switcher narrows and
    restores, Analytics and Settings are reachable (Admin A gets no nav item and a 403 on the API).
 10. **Unassigned** — a record with an empty `branch` is invisible to both admins, visible to the
     superadmin in All Branches mode.

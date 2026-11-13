@@ -34,6 +34,7 @@ const FALLBACK_BRANCHES = [
   { id: 'BRANCH_SAIBABA', name: 'Saibaba Colony' },
   { id: 'BRANCH_SOWRIPALAYAM', name: 'Sowripalayam' },
   { id: 'BRANCH_KUNIYAMUTHUR', name: 'Kuniyamuthur' },
+  { id: 'BRANCH_THOPPAMPATI', name: 'Thoppampati' },
 ]
 
 /** Mirrors getBranches() in lib/branches.ts. Kept in sync by hand — these are plain node scripts. */
@@ -55,7 +56,7 @@ function defaultBranchId(env) {
   const branches = getBranches(env)
   const configured = env.BACKFILL_DEFAULT_BRANCH
   if (configured && branches.some((b) => b.id === configured)) return configured
-  return branches[branches.length - 1].id
+  return branches[0].id
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

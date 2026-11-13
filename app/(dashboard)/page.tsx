@@ -157,7 +157,7 @@ export default function DashboardPage() {
       {stats?.byBranch && stats.byBranch.length > 0 && (
         <div className="card">
           <h3 className="mb-4">By Branch</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {stats.byBranch.map((b) => (
               <div key={b.branch || '(unassigned)'} className="rounded-xl border border-gray-200 p-4">
                 <p className="text-sm font-semibold text-primary mb-2">{b.branchName}</p>
