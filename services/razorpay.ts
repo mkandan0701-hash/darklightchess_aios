@@ -16,7 +16,7 @@ interface RazorpayInvoiceResponse {
 export async function createRazorpayInvoice(
   studentId: string,
   studentName: string,
-  parentEmail: string,
+  parentEmail: string | undefined,
   amount: number,
   currency: string,
   parentPhone?: string
@@ -33,7 +33,7 @@ export async function createRazorpayInvoice(
   const invoiceData = {
     customer: {
       name: studentName,
-      email: parentEmail,
+      ...(parentEmail ? { email: parentEmail } : {}),
       ...(parentPhone ? { contact: parentPhone } : {}),
     },
     line_items: [
@@ -49,7 +49,7 @@ export async function createRazorpayInvoice(
     currency,
     expire_by: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
     sms_notify: 0,
-    email_notify: 1,
+    email_notify: parentEmail ? 1 : 0,
     notes: {
       studentId,
       studentName,

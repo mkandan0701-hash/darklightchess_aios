@@ -15,6 +15,8 @@ interface LeadPayload {
   available_days: string[]
   available_time: string
   notes?: string
+  /** Optional: true if the family wants online classes. */
+  online?: boolean
 }
 
 // The public site posts to this route from the browser, so it needs to answer CORS
@@ -63,14 +65,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!body.phone || !body.phone.startsWith('+')) {
-      console.warn('[LEAD WEBHOOK] rejected — invalid phone', { branch })
-      return NextResponse.json(
-        { success: false, error: 'Phone must be in international format (e.g. +919876543210)' },
-        { status: 400, headers: cors }
-      )
-    }
-
     if (!Array.isArray(body.available_days) || body.available_days.length === 0) {
       console.warn('[LEAD WEBHOOK] rejected — missing available_days', { branch })
       return NextResponse.json(
@@ -95,8 +89,12 @@ export async function POST(request: NextRequest) {
         phone: body.phone,
         source: body.source,
         notes: body.notes,
+        online: body.online,
       },
-      branch
+      branch,
+      // The website form always collects an email. Phone is validated (and normalised to
+      // +<country>…) inside: a 10-digit Indian number or a +-prefixed international one.
+      { requireEmail: true }
     )
 
     if (!result.ok) {
@@ -118,7 +116,7 @@ export async function POST(request: NextRequest) {
     if (bestCoach) {
       try {
         await Promise.all([
-          sendWelcomeEmail(lead.email, lead.name),
+          ...(lead.email ? [sendWelcomeEmail(lead.email, lead.name)] : []),
           sendWelcomeWhatsApp(lead.phone, lead.name),
           sendEmailToCoach(bestCoach, lead),
         ])

@@ -30,14 +30,15 @@ export const POST = withAuth(async (req, { db }) => {
   } = body as Record<string, string>
 
   // Required field check
-  const required = { leadId, parentEmail, parentName, parentPhone, coachId, coachEmail, coachName, selectedDate, selectedTime }
+  // parentEmail is optional — leads entered by staff usually have only a phone number.
+  const required = { leadId, parentName, parentPhone, coachId, coachEmail, coachName, selectedDate, selectedTime }
   for (const [key, val] of Object.entries(required)) {
     if (!val || typeof val !== 'string' || val.trim() === '') {
       return NextResponse.json({ error: `Missing required field: ${key}` }, { status: 400 })
     }
   }
 
-  if (!EMAIL_REGEX.test(parentEmail)) {
+  if (parentEmail && !EMAIL_REGEX.test(parentEmail)) {
     return NextResponse.json({ error: 'Invalid parentEmail format' }, { status: 400 })
   }
 
@@ -77,7 +78,9 @@ export const POST = withAuth(async (req, { db }) => {
     )
 
     // 2. Send confirmation emails
-    await sendDemoConfirmationToParent(parentEmail, parentName, coachName, meetLink, selectedDate, selectedTime)
+    if (parentEmail) {
+      await sendDemoConfirmationToParent(parentEmail, parentName, coachName, meetLink, selectedDate, selectedTime)
+    }
     await sendDemoConfirmationToCoach(coachEmail, coachName, parentName, parentPhone, meetLink, selectedDate, selectedTime)
 
     // 3. Send WhatsApp to parent

@@ -19,13 +19,14 @@ export const POST = withAuth(async (req, { db }) => {
 
     const { studentId, studentName, parentEmail, parentPhone, amount, currency, coachName } = body
 
-    if (!studentId || !studentName || !parentEmail || !parentPhone || !coachName) {
+    // parentEmail is optional: a student added without one gets the link on WhatsApp only.
+    if (!studentId || !studentName || !parentPhone || !coachName) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
     if (typeof amount !== 'number' || amount <= 0 || amount > 100000) {
       return NextResponse.json({ error: 'Amount must be between 1 and 100000 (rupees)' }, { status: 400 })
     }
-    if (!parentEmail.includes('@')) {
+    if (parentEmail && !parentEmail.includes('@')) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
     }
     if (!parentPhone.startsWith('+')) {
@@ -41,7 +42,9 @@ export const POST = withAuth(async (req, { db }) => {
     const invoice = await createRazorpayInvoice(studentId, studentName, parentEmail, amount, resolvedCurrency, parentPhone)
     const { invoiceId, paymentLink, expiresAt } = invoice
 
-    await sendPaymentLinkEmail(parentEmail, studentName, paymentLink, amount, expiresAt, coachName)
+    if (parentEmail) {
+      await sendPaymentLinkEmail(parentEmail, studentName, paymentLink, amount, expiresAt, coachName)
+    }
     await sendPaymentLinkWhatsApp(parentPhone, studentName, paymentLink, amount, expiresAt)
     await db.updateStudentPaymentLink(studentId, paymentLink, invoiceId)
 

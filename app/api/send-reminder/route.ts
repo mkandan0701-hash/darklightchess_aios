@@ -17,7 +17,8 @@ export const POST = withAuth(async (req, { db, session }) => {
 
     const { paymentId, studentName, parentEmail, parentPhone, amountDue, dueDate } = body
 
-    if (!paymentId || !studentName || !parentEmail || typeof amountDue !== 'number' || !dueDate) {
+    // Needs at least one way to reach the family: email, WhatsApp, or both.
+    if (!paymentId || !studentName || (!parentEmail && !parentPhone) || typeof amountDue !== 'number' || !dueDate) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
     }
 
@@ -30,7 +31,9 @@ export const POST = withAuth(async (req, { db, session }) => {
       Math.floor((Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24))
     )
 
-    await sendOverdueReminderEmail(parentEmail, studentName, amountDue, daysOverdue)
+    if (parentEmail) {
+      await sendOverdueReminderEmail(parentEmail, studentName, amountDue, daysOverdue)
+    }
 
     if (parentPhone) {
       await sendOverdueReminderWhatsApp(parentPhone, studentName, amountDue, daysOverdue)

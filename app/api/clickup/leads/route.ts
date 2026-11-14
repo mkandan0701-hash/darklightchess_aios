@@ -23,7 +23,12 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const result = await validateAndCreateLead(db, body, branchForNewRecord(scope, session))
+  // Staff-entered leads carry no email — that only comes in through the website form.
+  const fields = { ...body }
+  delete fields.email
+  const result = await validateAndCreateLead(db, fields, branchForNewRecord(scope, session), {
+    requireEmail: false,
+  })
   if (!result.ok) {
     return NextResponse.json({ success: false, error: result.error }, { status: result.status })
   }

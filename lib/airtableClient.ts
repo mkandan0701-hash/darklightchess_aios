@@ -340,6 +340,7 @@ function mapRecordToLead(record: AirtableRecord): Lead {
     dateReceived: (f.created_at as string) ?? '',
     notes: (f.notes as string) || undefined,
     branch: selectName(f.branch) || undefined,
+    online: f.online === true,
   }
 }
 
@@ -1120,6 +1121,7 @@ export class AirtableClient {
     phone: string
     source: string
     notes?: string
+    online?: boolean
     branch: string
   }): Promise<Lead> {
     const dateReceived = new Date().toISOString().split('T')[0]
@@ -1139,6 +1141,7 @@ export class AirtableClient {
         dateReceived,
         notes: data.notes,
         branch: data.branch,
+        online: !!data.online,
       }
       console.log(`[AIRTABLE MOCK] Created lead`, lead)
       return lead
@@ -1152,6 +1155,7 @@ export class AirtableClient {
       status: 'new',
       created_at: dateReceived,
       notes: data.notes ?? '',
+      online: !!data.online,
       branch: data.branch,
     })
 

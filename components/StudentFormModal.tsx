@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Modal from '@/components/Modal'
 import BatchPicker from '@/components/BatchPicker'
 import { batchInputError, encodeBatch } from '@/lib/batches'
+import PhoneInput from '@/components/PhoneInput'
+import { INDIAN_MOBILE_REGEX } from '@/lib/phone'
 
 export interface StudentFormValues {
   name: string
@@ -78,7 +80,7 @@ export default function StudentFormModal({
   }, [isOpen, defaultOnline])
 
   const batchError = batchInputError(form)
-  const cannotSubmit = submitting || !form.name || !form.email || !form.phone || !form.monthlyFee || !!batchError
+  const cannotSubmit = submitting || !form.name || !form.email || !INDIAN_MOBILE_REGEX.test(form.phone) || !form.monthlyFee || !!batchError
 
   const handleSubmit = async () => {
     const { days, startTime, endTime, ...rest } = form
@@ -118,16 +120,7 @@ export default function StudentFormModal({
           />
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Phone</label>
-          <input
-            type="text"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            className="input-field"
-            placeholder="+919876543210"
-          />
-        </div>
+        <PhoneInput value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
 
         <div className="grid grid-cols-2 gap-3">
           <div>

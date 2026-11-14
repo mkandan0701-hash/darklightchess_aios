@@ -3,6 +3,7 @@ import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
 import { isValidBatchId } from '@/lib/batches'
 import { AirtableUnavailableError } from '@/lib/airtableClient'
+import { normalizePhone, PHONE_ERROR } from '@/lib/phone'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -35,8 +36,9 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
   if (typeof email !== 'string' || !EMAIL_REGEX.test(email)) {
     return NextResponse.json({ success: false, error: 'Invalid email format' }, { status: 400 })
   }
-  if (typeof phone !== 'string' || !phone.startsWith('+')) {
-    return NextResponse.json({ success: false, error: 'Phone must be in international format (e.g. +919876543210)' }, { status: 400 })
+  const phoneValue = normalizePhone(phone)
+  if (!phoneValue) {
+    return NextResponse.json({ success: false, error: PHONE_ERROR }, { status: 400 })
   }
   if (!Number.isFinite(Number(classesPerWeek)) || Number(classesPerWeek) <= 0) {
     return NextResponse.json({ success: false, error: 'Classes per week must be a positive number' }, { status: 400 })
@@ -57,7 +59,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
     const student = await db.createStudent({
       name: name.trim(),
       email: email.trim().toLowerCase(),
-      phone: phone.trim(),
+      phone: phoneValue,
       classesPerWeek: Number(classesPerWeek),
       duration: typeof duration === 'string' && duration.trim() ? duration.trim() : '45 min',
       monthlyFee: Number(monthlyFee),

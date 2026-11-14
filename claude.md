@@ -174,9 +174,20 @@ camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
 | Table | Fields |
 |---|---|
 | **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `batch_timing`, `paused_month`, `online`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
-| **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `created_at`, **`branch`** |
+| **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `online`, `created_at`, **`branch`** |
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
 | **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
+
+**Lead email is optional; phones are stored E.164.** Leads typed in on `/leads` have no email
+field — only the website form (`lead-capture` webhook, `requireEmail: true` in
+`validateAndCreateLead`) carries one. Converting such a lead takes an optional email, so a
+Student may also have `email: ''`; schedule-demo, payment-link, send-reminder skip the email and
+use WhatsApp, and the daily-reminders cron (email-only) skips that student. Staff type a plain
+10-digit Indian mobile number (`components/PhoneInput.tsx`, fixed `+91` prefix); `lib/phone.ts`
+`normalizePhone` turns it into `+91…` server-side and passes `+`-prefixed international numbers
+(foreign students via the website) through unchanged. Leads' `online` checkbox (Online/Offline
+choice on Add Lead) was added on 2026-11-14 by `scripts/add-online-field.js` and is copied onto
+the Student on convert.
 
 **Expenses table** is created by `scripts/add-expenses-table.js` (`description`, `amount`,
 `category`, `date`, and a `branch` singleSelect with the 3 branch-id choices pre-created, for the
@@ -289,7 +300,7 @@ still works in an environment without secrets.)
 | `app/(dashboard)/analytics/layout.tsx`, `.../settings/layout.tsx` | Server-side `role === 'superadmin'` gate. The Sidebar hiding these links is UX only — these layouts are what actually stop a branch admin from loading the page by URL. |
 | `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
 | `scripts/add-batch-timing-field.js` | One-shot: adds `batch_timing` (text) to Students via the Airtable Meta API. |
-| `scripts/add-online-field.js` | One-shot: adds `online` (checkbox) to Students via the Airtable Meta API. |
+| `scripts/add-online-field.js` | One-shot: adds `online` (checkbox) to Students and Leads via the Airtable Meta API. |
 | `scripts/add-paused-month-field.js` | One-shot: adds `paused_month` (text) to Students via the Airtable Meta API. |
 | `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
 | `scripts/cleanup-orphaned-payments.js` | One-shot: deletes Payment rows whose `student_id` points at a deleted Student — retroactive fix for students deleted before `deleteStudent()` cascaded. `--apply` to write. |

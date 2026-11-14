@@ -79,6 +79,13 @@ export async function GET(request: NextRequest) {
       continue
     }
 
+    // This cron only sends email. A student added without one is reminded from the
+    // dashboard (Remind button → WhatsApp) instead.
+    if (!student.email) {
+      console.log(`[CRON SKIP] no email for student ${student.id}`)
+      continue
+    }
+
     const daysOverdue = Math.max(
       0,
       Math.floor((Date.now() - new Date(payment.dueDate).getTime()) / (1000 * 60 * 60 * 24))

@@ -35,6 +35,8 @@ export interface Lead {
   dateReceived: string
   notes?: string
   branch?: string
+  /** Wants online classes. Carried onto the Student on convert. */
+  online: boolean
 }
 
 export interface Payment {

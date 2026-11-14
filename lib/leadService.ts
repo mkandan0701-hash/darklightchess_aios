@@ -1,5 +1,6 @@
 import type { AirtableClient } from '@/lib/airtableClient'
 import type { Lead } from '@/lib/types'
+import { normalizePhone, PHONE_ERROR } from '@/lib/phone'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -12,22 +13,33 @@ export type CreateLeadResult =
  *   for the lead-capture webhook.
  * @param branch resolved by the caller (the signed-in user's scope, or the webhook secret).
  *   Never read from the request body: a caller that can name its own branch isn't scoped.
+ * @param opts.requireEmail true for the website form (it always collects one); false for
+ *   leads typed in by staff, who usually only have a phone number. An email that *is* given
+ *   is still validated.
  */
 export async function validateAndCreateLead(
   db: AirtableClient,
   body: Record<string, unknown>,
-  branch: string
+  branch: string,
+  opts: { requireEmail: boolean }
 ): Promise<CreateLeadResult> {
-  const { name, email, phone, source, notes } = body
+  const { name, email, phone, source, notes, online } = body
 
   if (typeof name !== 'string' || name.trim().length < 2) {
     return { ok: false, status: 400, error: 'Name is required (minimum 2 characters)' }
   }
-  if (typeof email !== 'string' || !EMAIL_REGEX.test(email)) {
+
+  const emailValue = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  if (opts.requireEmail && !emailValue) {
+    return { ok: false, status: 400, error: 'Email is required' }
+  }
+  if (emailValue && !EMAIL_REGEX.test(emailValue)) {
     return { ok: false, status: 400, error: 'Invalid email format' }
   }
-  if (typeof phone !== 'string' || !phone.startsWith('+')) {
-    return { ok: false, status: 400, error: 'Phone must be in international format (e.g. +919876543210)' }
+
+  const phoneValue = normalizePhone(phone)
+  if (!phoneValue) {
+    return { ok: false, status: 400, error: PHONE_ERROR }
   }
   if (typeof source !== 'string' || !source.trim()) {
     return { ok: false, status: 400, error: 'Source is required' }
@@ -36,10 +48,11 @@ export async function validateAndCreateLead(
   try {
     const lead = await db.createLead({
       name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
+      email: emailValue,
+      phone: phoneValue,
       source: source.trim(),
       notes: typeof notes === 'string' ? notes.trim() : undefined,
+      online: online === true,
       branch,
     })
     return { ok: true, lead }

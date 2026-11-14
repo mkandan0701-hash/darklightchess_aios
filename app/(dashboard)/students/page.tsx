@@ -155,7 +155,7 @@ export default function StudentsPage() {
         alert(result.error ?? 'Failed to send payment link')
         return
       }
-      alert(`Payment link sent to ${student.email}`)
+      alert(`Payment link sent to ${student.email || `${student.phone} on WhatsApp`}`)
     } catch {
       alert('Failed to send payment link. Please try again.')
     } finally {

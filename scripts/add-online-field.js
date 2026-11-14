@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
-// One-shot: add the `online` (checkbox) field to Students.
+// One-shot: add the `online` (checkbox) field to Students and Leads.
+// (Leads gained it on 2026-11-14 for the Online/Offline choice on Add Lead.)
 //
 //   node scripts/add-online-field.js
 //
@@ -12,7 +13,7 @@ const { loadEnvLocal, airtableHeaders } = require('./_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const META = `https://api.airtable.com/v0/meta/bases/${env.AIRTABLE_BASE_ID}/tables`
-const TARGET_TABLE = 'Students'
+const TARGET_TABLES = ['Students', 'Leads']
 
 async function main() {
   const res = await fetch(META, { headers: airtableHeaders(env) })
@@ -26,34 +27,38 @@ async function main() {
   }
 
   const { tables } = await res.json()
-  const table = tables.find((t) => t.name === TARGET_TABLE)
-  if (!table) {
-    console.error(`❌ Table "${TARGET_TABLE}" not found in base ${env.AIRTABLE_BASE_ID}`)
-    process.exit(1)
+  for (const name of TARGET_TABLES) {
+    const table = tables.find((t) => t.name === name)
+    if (!table) {
+      console.error(`❌ Table "${name}" not found in base ${env.AIRTABLE_BASE_ID}`)
+      process.exitCode = 1
+      continue
+    }
+
+    if (table.fields.some((f) => f.name === 'online')) {
+      console.log(`⏭  ${name}: "online" already exists — skipped`)
+      continue
+    }
+
+    const create = await fetch(`${META}/${table.id}/fields`, {
+      method: 'POST',
+      headers: airtableHeaders(env),
+      body: JSON.stringify({
+        name: 'online',
+        type: 'checkbox',
+        options: { icon: 'check', color: 'greenBright' },
+      }),
+    })
+
+    if (!create.ok) {
+      const text = await create.text()
+      console.error(`❌ ${name}: failed to create "online": ${create.status} ${text}`)
+      process.exitCode = 1
+      continue
+    }
+
+    console.log(`✅ ${name}: created "online"`)
   }
-
-  if (table.fields.some((f) => f.name === 'online')) {
-    console.log(`⏭  ${TARGET_TABLE}: "online" already exists — skipped`)
-    return
-  }
-
-  const create = await fetch(`${META}/${table.id}/fields`, {
-    method: 'POST',
-    headers: airtableHeaders(env),
-    body: JSON.stringify({
-      name: 'online',
-      type: 'checkbox',
-      options: { icon: 'check', color: 'greenBright' },
-    }),
-  })
-
-  if (!create.ok) {
-    const text = await create.text()
-    console.error(`❌ ${TARGET_TABLE}: failed to create "online": ${create.status} ${text}`)
-    process.exit(1)
-  }
-
-  console.log(`✅ ${TARGET_TABLE}: created "online"`)
 }
 
 main().catch((err) => {

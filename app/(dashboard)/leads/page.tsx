@@ -7,15 +7,18 @@ import type { Lead, Column } from '@/lib/types'
 import { formatDate, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
+import PhoneInput from '@/components/PhoneInput'
+import { INDIAN_MOBILE_REGEX } from '@/lib/phone'
 
 const DEFAULT_COACH = { id: 'C1', name: 'Manikandan', email: 'manikandan@darklight.com' }
 
+// Staff-entered leads have no email — only the website form collects one.
 const EMPTY_LEAD_FORM = {
   name: '',
-  email: '',
   phone: '',
   source: 'website',
   notes: '',
+  online: false,
 }
 
 const EMPTY_BOOKING_FORM = {
@@ -24,6 +27,8 @@ const EMPTY_BOOKING_FORM = {
 }
 
 const EMPTY_CONVERT_FORM = {
+  email: '',
+  online: false,
   classesPerWeek: '3',
   duration: '45 min',
   monthlyFee: '',
@@ -145,7 +150,7 @@ export default function LeadsPage() {
       )
       setBookingLead(null)
       setBookingForm(EMPTY_BOOKING_FORM)
-      alert(`Demo scheduled! Meet link sent to ${bookingLead.email}:\n${result.meetLink}`)
+      alert(`Demo scheduled! Meet link sent to ${bookingLead.email || `${bookingLead.phone} on WhatsApp`}:\n${result.meetLink}`)
     } catch {
       setBookingError('Failed to schedule demo. Please try again.')
     } finally {
@@ -164,8 +169,9 @@ export default function LeadsPage() {
         body: JSON.stringify({
           leadId: convertLead.id,
           name: convertLead.name,
-          email: convertLead.email,
+          email: convertForm.email.trim(),
           phone: convertLead.phone,
+          online: convertForm.online,
           classesPerWeek: convertForm.classesPerWeek,
           duration: convertForm.duration,
           monthlyFee: convertForm.monthlyFee,
@@ -234,8 +240,13 @@ export default function LeadsPage() {
 
   const columns: Column<Lead>[] = [
     { key: 'name', label: 'Name' },
-    { key: 'email', label: 'Email', width: '200px' },
+    { key: 'email', label: 'Email', width: '200px', render: (v) => (v ? String(v) : <span className="text-gray-400">—</span>) },
     { key: 'phone', label: 'Phone' },
+    {
+      key: 'online',
+      label: 'Mode',
+      render: (v) => <span className="text-sm">{v ? 'Online' : 'Offline'}</span>,
+    },
     {
       key: 'source',
       label: 'Source',
@@ -282,7 +293,7 @@ export default function LeadsPage() {
               onClick={(e) => {
                 e.stopPropagation()
                 setConvertError('')
-                setConvertForm(EMPTY_CONVERT_FORM)
+                setConvertForm({ ...EMPTY_CONVERT_FORM, email: row.email, online: row.online })
                 setConvertLead(row)
               }}
             >
@@ -394,26 +405,29 @@ export default function LeadsPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Email</label>
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="input-field"
-              placeholder="parent@email.com"
-            />
-          </div>
+          <PhoneInput value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Phone</label>
-            <input
-              type="text"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="input-field"
-              placeholder="+919876543210"
-            />
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Class Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Offline', value: false },
+                { label: 'Online', value: true },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => setForm({ ...form, online: opt.value })}
+                  className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    form.online === opt.value
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-white text-textDark border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -441,9 +455,9 @@ export default function LeadsPage() {
 
           <button
             onClick={handleAddLead}
-            disabled={submitting || !form.name || !form.email || !form.phone}
+            disabled={submitting || !form.name || !INDIAN_MOBILE_REGEX.test(form.phone)}
             className={`btn-primary w-full justify-center ${
-              submitting || !form.name || !form.email || !form.phone
+              submitting || !form.name || !INDIAN_MOBILE_REGEX.test(form.phone)
                 ? 'opacity-60 cursor-not-allowed'
                 : ''
             }`}
@@ -470,7 +484,7 @@ export default function LeadsPage() {
             )}
 
             <div className="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 space-y-1">
-              <p><span className="font-semibold">Parent:</span> {bookingLead.name} ({bookingLead.email})</p>
+              <p><span className="font-semibold">Parent:</span> {bookingLead.name} ({bookingLead.email || bookingLead.phone})</p>
               <p><span className="font-semibold">Coach:</span> {DEFAULT_COACH.name} ({DEFAULT_COACH.email})</p>
             </div>
 
@@ -527,9 +541,29 @@ export default function LeadsPage() {
 
             <div className="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 space-y-1">
               <p><span className="font-semibold">Name:</span> {convertLead.name}</p>
-              <p><span className="font-semibold">Email:</span> {convertLead.email}</p>
               <p><span className="font-semibold">Phone:</span> {convertLead.phone}</p>
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Parent Email (optional)</label>
+              <input
+                type="email"
+                value={convertForm.email}
+                onChange={(e) => setConvertForm({ ...convertForm, email: e.target.value })}
+                className="input-field"
+                placeholder="Leave blank to use WhatsApp only"
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-textDark">
+              <input
+                type="checkbox"
+                checked={convertForm.online}
+                onChange={(e) => setConvertForm({ ...convertForm, online: e.target.checked })}
+                className="w-4 h-4"
+              />
+              Online class
+            </label>
 
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Classes per Week</label>

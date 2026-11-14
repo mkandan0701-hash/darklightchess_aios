@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
 import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
+import { normalizePhone, PHONE_ERROR } from '@/lib/phone'
+
+const EMAIL_REGEX = /^[^s@]+@[^s@]+.[^s@]+$/
 
 export const POST = withAuth(async (request, { db, scope, session }) => {
   let body: Record<string, unknown>
@@ -11,7 +14,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { leadId, name, email, phone, classesPerWeek, duration, monthlyFee, grade } = body as Record<string, unknown>
+  const { leadId, name, email, phone, classesPerWeek, duration, monthlyFee, grade, online } = body as Record<string, unknown>
 
   if (typeof leadId !== 'string' || !leadId) {
     return NextResponse.json({ success: false, error: 'leadId is required' }, { status: 400 })
@@ -19,11 +22,18 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
   if (typeof name !== 'string' || name.trim().length < 2) {
     return NextResponse.json({ success: false, error: 'Name is required (minimum 2 characters)' }, { status: 400 })
   }
-  if (typeof email !== 'string' || !email.includes('@')) {
+  // Email is optional: leads entered by staff usually don't have one. Without it the family
+  // gets payment links, reminders and receipts on WhatsApp only.
+  const emailValue = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  if (emailValue && !EMAIL_REGEX.test(emailValue)) {
     return NextResponse.json({ success: false, error: 'Invalid email format' }, { status: 400 })
   }
-  if (typeof phone !== 'string' || !phone.startsWith('+')) {
-    return NextResponse.json({ success: false, error: 'Phone must be in international format (e.g. +919876543210)' }, { status: 400 })
+  const phoneValue = normalizePhone(phone)
+  if (!phoneValue) {
+    return NextResponse.json({ success: false, error: PHONE_ERROR }, { status: 400 })
+  }
+  if (online !== undefined && typeof online !== 'boolean') {
+    return NextResponse.json({ success: false, error: 'online must be a boolean' }, { status: 400 })
   }
   if (!Number.isFinite(Number(classesPerWeek)) || Number(classesPerWeek) <= 0) {
     return NextResponse.json({ success: false, error: 'Classes per week must be a positive number' }, { status: 400 })
@@ -42,13 +52,14 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
 
     const student = await db.createStudent({
       name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
+      email: emailValue,
+      phone: phoneValue,
       classesPerWeek: Number(classesPerWeek),
       duration: typeof duration === 'string' && duration.trim() ? duration.trim() : '45 min',
       monthlyFee: Number(monthlyFee),
       grade: typeof grade === 'string' ? grade.trim() : undefined,
       branch,
+      online: online === true,
     })
 
     await db.updateLeadStatus(leadId, 'converted')
