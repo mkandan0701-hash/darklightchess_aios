@@ -162,6 +162,7 @@ export default function FinancePage() {
         <StatCard
           label="Income (this month)"
           value={loading ? '—' : formatCurrency(stats?.monthlyRevenue ?? 0)}
+          subtitle={stats && stats.pausedStudents > 0 ? `${stats.pausedStudents} paused · ${formatCurrency(stats.pausedFees)} not billed` : undefined}
           icon={<IncomeIcon />}
           color="success"
         />
@@ -210,6 +211,20 @@ export default function FinancePage() {
                     <dt>Income</dt>
                     <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenue)}</dd>
                   </div>
+                  <div className="flex justify-between pl-3">
+                    <dt>Collected</dt>
+                    <dd className="font-medium text-success">{formatCurrency(b.monthlyCollected)}</dd>
+                  </div>
+                  <div className="flex justify-between pl-3">
+                    <dt>Pending</dt>
+                    <dd className="font-medium text-warning">{formatCurrency(b.monthlyPending)}</dd>
+                  </div>
+                  {b.pausedStudents > 0 && (
+                    <div className="flex justify-between pl-3">
+                      <dt>Paused ({b.pausedStudents})</dt>
+                      <dd className="font-medium text-gray-400">{formatCurrency(b.pausedFees)}</dd>
+                    </div>
+                  )}
                   {b.monthlyRevenueOnline !== undefined && (
                     <>
                       <div className="flex justify-between pl-3">

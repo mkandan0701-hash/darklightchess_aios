@@ -403,6 +403,14 @@ call site that forgot to pass a scope is a type error.
   strips these fields for admins. `/payments` derives a payment's mode by joining `studentId` to the
   student — unresolvable (legacy) rows count as Offline. Expenses have no mode, so Net Profit is not split.
   `/students` has All/Offline/Online tabs for every role.
+- **Revenue on the dashboard is Expected / Collected / Pending** (added 2026-11-16, after a
+  "Sowripalayam revenue is wrong" report that turned out to be 12 paused students silently
+  missing from the figure). `monthlyRevenue` = **Expected** = fees of students *not* paused this
+  month; `monthlyCollected` = the part from students whose `payment_status` is `paid` (reset to
+  `pending` by the monthly cron, so this means paid this month); `monthlyPending` = the difference;
+  `pausedStudents`/`pausedFees` are shown as a "N paused · ₹X not billed" note so the gap is
+  visible. All from the Students rows `getStats` already reads — no extra Airtable calls. It's
+  fee-based, not the amount actually received in Razorpay. Visible to admins too.
 - **Monthly billing arrears stack, by design.** `AirtableClient.runMonthlyReset()` (the
   `/api/cron/monthly-reset` cron, 1st of the month) always *creates* a new Payment due for every
   student rather than mutating an existing one — a student who never paid last month ends up with

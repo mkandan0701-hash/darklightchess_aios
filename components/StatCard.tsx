@@ -7,7 +7,7 @@ const colorMap: Record<string, string> = {
   error: 'bg-red-100 text-error',
 }
 
-export default function StatCard({ label, value, icon, trend, trendLabel, color = 'primary' }: StatCardProps) {
+export default function StatCard({ label, value, icon, trend, trendLabel, subtitle, color = 'primary' }: StatCardProps) {
   const iconColors = colorMap[color] ?? colorMap.primary
 
   return (
@@ -16,6 +16,7 @@ export default function StatCard({ label, value, icon, trend, trendLabel, color 
         <div>
           <p className="text-sm text-gray-500 font-medium">{label}</p>
           <p className="text-3xl font-bold text-textDark mt-1">{value}</p>
+          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
         </div>
         <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${iconColors}`}>
           {icon}

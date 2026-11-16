@@ -377,6 +377,10 @@ function emptyStats(): DashboardStats {
     totalLeads: 0,
     activeStudents: 0,
     monthlyRevenue: 0,
+    monthlyCollected: 0,
+    monthlyPending: 0,
+    pausedStudents: 0,
+    pausedFees: 0,
     monthlyExpenses: 0,
     netProfit: 0,
     overduePayments: 0,
@@ -403,6 +407,12 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
   const monthlyRevenueOffline = sumFees(billable.filter((s) => !s.online))
   const monthlyRevenue = monthlyRevenueOnline + monthlyRevenueOffline
 
+  // Collected/Pending use Students.payment_status, which the monthly-reset cron sets back to
+  // `pending` on the 1st — so `paid` here means paid this month. Uses rows already loaded:
+  // no extra Airtable request.
+  const monthlyCollected = sumFees(billable.filter((s) => s.paymentStatus === 'paid'))
+  const paused = students.filter((s) => s.pausedMonth === pausedThisMonth)
+
   const monthlyExpenses = expenses
     .filter((e) => e.date && inCurrentMonth(e.date))
     .reduce((sum, e) => sum + e.amount, 0)
@@ -413,6 +423,10 @@ function computeStats(students: Student[], leads: Lead[], payments: Payment[], e
     totalLeads: leads.length,
     activeStudents: students.length,
     monthlyRevenue,
+    monthlyCollected,
+    monthlyPending: monthlyRevenue - monthlyCollected,
+    pausedStudents: paused.length,
+    pausedFees: sumFees(paused),
     monthlyRevenueOnline,
     monthlyRevenueOffline,
     activeStudentsOnline: students.filter((s) => s.online).length,

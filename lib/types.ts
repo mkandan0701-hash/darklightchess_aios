@@ -65,7 +65,15 @@ export interface Expense {
 export interface DashboardStats {
   totalLeads: number
   activeStudents: number
+  /** Expected this month: fees of every student not paused for the month. */
   monthlyRevenue: number
+  /** Part of `monthlyRevenue` from students marked paid this month. */
+  monthlyCollected: number
+  /** `monthlyRevenue − monthlyCollected`. */
+  monthlyPending: number
+  /** Students paused for this month, and the fees left out of `monthlyRevenue` because of it. */
+  pausedStudents: number
+  pausedFees: number
   monthlyExpenses: number
   netProfit: number
   overduePayments: number
@@ -109,6 +117,8 @@ export interface StatCardProps {
   icon: ReactNode
   trend?: number
   trendLabel?: string
+  /** Small grey note under the value. */
+  subtitle?: string
   color?: 'primary' | 'success' | 'warning' | 'error'
 }
 

@@ -106,8 +106,9 @@ export default function DashboardPage() {
           color="success"
         />
         <StatCard
-          label="Monthly Revenue"
+          label="Expected Revenue (this month)"
           value={loading ? '—' : formatCurrency(stats?.monthlyRevenue ?? 0)}
+          subtitle={stats && stats.pausedStudents > 0 ? `${stats.pausedStudents} paused · ${formatCurrency(stats.pausedFees)} not billed` : undefined}
           icon={<RevenueIcon />}
           color="warning"
         />
@@ -116,6 +117,22 @@ export default function DashboardPage() {
           value={loading ? '—' : (stats?.overduePayments ?? 0)}
           icon={<OverdueIcon />}
           color="error"
+        />
+      </div>
+
+      {/* Collected vs still to collect, out of Expected Revenue */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <StatCard
+          label="Collected (this month)"
+          value={loading ? '—' : formatCurrency(stats?.monthlyCollected ?? 0)}
+          icon={<RevenueIcon />}
+          color="success"
+        />
+        <StatCard
+          label="Pending (this month)"
+          value={loading ? '—' : formatCurrency(stats?.monthlyPending ?? 0)}
+          icon={<RevenueIcon />}
+          color="warning"
         />
       </div>
 
@@ -167,9 +184,23 @@ export default function DashboardPage() {
                     <dd className="font-medium text-textDark">{b.activeStudents}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt>Revenue (mo)</dt>
+                    <dt>Expected (mo)</dt>
                     <dd className="font-medium text-textDark">{formatCurrency(b.monthlyRevenue)}</dd>
                   </div>
+                  <div className="flex justify-between pl-3">
+                    <dt>Collected</dt>
+                    <dd className="font-medium text-success">{formatCurrency(b.monthlyCollected)}</dd>
+                  </div>
+                  <div className="flex justify-between pl-3">
+                    <dt>Pending</dt>
+                    <dd className="font-medium text-warning">{formatCurrency(b.monthlyPending)}</dd>
+                  </div>
+                  {b.pausedStudents > 0 && (
+                    <div className="flex justify-between pl-3">
+                      <dt>Paused ({b.pausedStudents})</dt>
+                      <dd className="font-medium text-gray-400">{formatCurrency(b.pausedFees)}</dd>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <dt>Expenses (mo)</dt>
                     <dd className="font-medium text-textDark">{formatCurrency(b.monthlyExpenses)}</dd>
