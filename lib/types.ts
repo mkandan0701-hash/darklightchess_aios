@@ -37,6 +37,8 @@ export interface Lead {
   branch?: string
   /** Wants online classes. Carried onto the Student on convert. */
   online: boolean
+  /** Exact time the Airtable row was created (ISO). Used to order same-day leads. */
+  createdAt?: string
 }
 
 export interface Payment {

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Table from '@/components/Table'
 import Modal from '@/components/Modal'
 import type { Lead, Column } from '@/lib/types'
-import { formatDate, getStatusColor } from '@/lib/utils'
+import { compareLeadsByDate, formatDate, formatDateTime, getStatusColor } from '@/lib/utils'
 import { useIsAllBranches, useIsSuperAdmin } from '@/components/SessionProvider'
 import { branchName } from '@/lib/branches'
 import PhoneInput from '@/components/PhoneInput'
@@ -70,6 +70,7 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<LeadStatus>('all')
   const [filterSource, setFilterSource] = useState<LeadSource>('all')
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
   const [showAddModal, setShowAddModal] = useState(false)
   const [form, setForm] = useState(EMPTY_LEAD_FORM)
   const [submitting, setSubmitting] = useState(false)
@@ -219,12 +220,14 @@ export default function LeadsPage() {
   }
 
   const filtered = useMemo(() => {
-    return leads.filter((l) => {
+    const list = leads.filter((l) => {
       const matchesStatus = filterStatus === 'all' || l.status === filterStatus
       const matchesSource = filterSource === 'all' || l.source === filterSource
       return matchesStatus && matchesSource
     })
-  }, [leads, filterStatus, filterSource])
+    list.sort(compareLeadsByDate)
+    return sortOrder === 'newest' ? list : list.reverse()
+  }, [leads, filterStatus, filterSource, sortOrder])
 
   const funnelCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -266,7 +269,7 @@ export default function LeadsPage() {
     {
       key: 'dateReceived',
       label: 'Date Received',
-      render: (v) => formatDate(String(v)),
+      render: (v, row) => (row.createdAt ? formatDateTime(row.createdAt) : formatDate(String(v))),
     },
     ...(showBranchColumn
       ? [{ key: 'branch', label: 'Branch', render: (v: unknown) => branchName(v as string) } as Column<Lead>]
@@ -353,6 +356,14 @@ export default function LeadsPage() {
           {SOURCE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
+        </select>
+        <select
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')}
+          className="input-field w-auto"
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
         </select>
         <div className="flex flex-wrap gap-2">
           {STATUS_OPTIONS.map((opt) => (

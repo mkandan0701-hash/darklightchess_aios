@@ -15,6 +15,28 @@ export function formatDate(dateString: string): string {
   }).format(new Date(dateString))
 }
 
+/** e.g. "22 Nov 2026 · 8:01 pm" */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso)
+  const date = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(d)
+  const time = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).format(d)
+  return `${date} · ${time}`
+}
+
+/**
+ * Newest lead first: by the day it came in, then by the exact time Airtable created the row
+ * (so leads from the same day keep their arrival order). Airtable returns rows unordered.
+ */
+export function compareLeadsByDate(
+  a: { dateReceived: string; createdAt?: string },
+  b: { dateReceived: string; createdAt?: string }
+): number {
+  return (
+    (b.dateReceived || '').localeCompare(a.dateReceived || '') ||
+    (b.createdAt || '').localeCompare(a.createdAt || '')
+  )
+}
+
 export function getStatusColor(status: string): string {
   const map: Record<string, string> = {
     paid: 'text-success bg-green-100',

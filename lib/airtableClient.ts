@@ -4,7 +4,7 @@ import { canAccessBranch, systemScope } from './auth/rbac'
 import { ALL_BRANCHES } from './auth/cookies'
 import { branchName, isValidBranchId } from './branches'
 import { isValidBatchId } from './batches'
-import { monthKey } from './utils'
+import { compareLeadsByDate, monthKey } from './utils'
 
 const BASE_URL = 'https://api.airtable.com/v0'
 
@@ -29,6 +29,8 @@ function tableUrl(table: string, path = ''): string {
 interface AirtableRecord {
   id: string
   fields: Record<string, unknown>
+  /** Set by Airtable on every record. */
+  createdTime?: string
 }
 
 /** Thrown when a caller aims a mutation at a record outside its branch. */
@@ -341,6 +343,7 @@ function mapRecordToLead(record: AirtableRecord): Lead {
     notes: (f.notes as string) || undefined,
     branch: selectName(f.branch) || undefined,
     online: f.online === true,
+    createdAt: record.createdTime,
   }
 }
 
@@ -616,7 +619,9 @@ export class AirtableClient {
   }
 
   async getLeads(): Promise<Lead[]> {
-    return this.list(TABLES.leads, mapRecordToLead)
+    const leads = await this.list(TABLES.leads, mapRecordToLead)
+    // Copy before sorting: list() may hand back its cached array.
+    return [...leads].sort(compareLeadsByDate)
   }
 
   async getPayments(): Promise<Payment[]> {
