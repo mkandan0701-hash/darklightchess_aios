@@ -1,4 +1,4 @@
-import type { AirtableClient } from '@/lib/airtableClient'
+import type { Database } from '@/lib/supabaseClient'
 import type { Lead } from '@/lib/types'
 import { normalizePhone, PHONE_ERROR } from '@/lib/phone'
 
@@ -9,7 +9,7 @@ export type CreateLeadResult =
   | { ok: false; status: number; error: string }
 
 /**
- * @param db a scoped client — from withAuth for a user request, or AirtableClient.system()
+ * @param db a scoped client — from withAuth for a user request, or Database.system()
  *   for the lead-capture webhook.
  * @param branch resolved by the caller (the signed-in user's scope, or the webhook secret).
  *   Never read from the request body: a caller that can name its own branch isn't scoped.
@@ -18,7 +18,7 @@ export type CreateLeadResult =
  *   is still validated.
  */
 export async function validateAndCreateLead(
-  db: AirtableClient,
+  db: Database,
   body: Record<string, unknown>,
   branch: string,
   opts: { requireEmail: boolean }

@@ -18,7 +18,7 @@
 //    visible to the superadmin only. Guessing here would silently hand a payment to the wrong
 //    branch admin.
 
-const { loadEnvLocal, airtableHeaders, getBranches, defaultBranchId, sleep } = require('./_shared')
+const { loadEnvLocal, airtableHeaders, getBranches, defaultBranchId, sleep } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const APPLY = process.argv.includes('--apply')

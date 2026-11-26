@@ -3,7 +3,7 @@ import { createRazorpayInvoice } from '@/services/razorpay'
 import { sendPaymentLinkEmail } from '@/lib/emailSender'
 import { sendPaymentLinkWhatsApp } from '@/lib/whatsappSender'
 import { withAuth } from '@/lib/auth/withAuth'
-import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
+import { DatabaseUnavailableError, ScopeError } from '@/lib/supabaseClient'
 
 export const POST = withAuth(async (req, { db }) => {
   try {
@@ -61,7 +61,7 @@ export const POST = withAuth(async (req, { db }) => {
       createdAt: new Date().toISOString(),
     })
   } catch (err) {
-    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
+    if (err instanceof ScopeError || err instanceof DatabaseUnavailableError) throw err
     console.error('[PAYMENT LINK ERROR]', err)
     return NextResponse.json({ error: 'Failed to generate payment link' }, { status: 500 })
   }

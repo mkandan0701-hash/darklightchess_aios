@@ -10,7 +10,7 @@
 // Paid and unpaid rows both go. Rows with no due_date are left alone and reported, since there is
 // no way to tell which month they belong to.
 
-const { loadEnvLocal, airtableHeaders, sleep } = require('./_shared')
+const { loadEnvLocal, airtableHeaders, sleep } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const APPLY = process.argv.includes('--apply')

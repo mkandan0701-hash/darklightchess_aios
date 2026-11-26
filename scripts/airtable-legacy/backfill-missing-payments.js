@@ -15,7 +15,7 @@
 // A student that already has ANY Payment row (paid, pending, or overdue) is left alone — this
 // script only fills the gap, it never adds a second row for a student already tracked.
 
-const { loadEnvLocal, airtableHeaders, sleep } = require('./_shared')
+const { loadEnvLocal, airtableHeaders, sleep } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const APPLY = process.argv.includes('--apply')

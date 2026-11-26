@@ -3,19 +3,19 @@ import type { Role, Scope, Session } from './types'
 import { verifySession } from './session'
 import { scopeFromRequest } from './scope'
 import { SESSION_COOKIE } from './cookies'
-import { AirtableClient, AirtableUnavailableError, ScopeError } from '../airtableClient'
+import { Database, DatabaseUnavailableError, ScopeError } from '../supabaseClient'
 
 export interface AuthContext {
   session: Session
   scope: Scope
   /** Already branch-scoped. A handler has no unscoped client to reach for. */
-  db: AirtableClient
+  db: Database
 }
 
 type Handler = (request: NextRequest, ctx: AuthContext) => Promise<Response> | Response
 
 /**
- * Wraps a route handler with authentication, role checks, and a pre-scoped Airtable client.
+ * Wraps a route handler with authentication, role checks, and a pre-scoped database client.
  *
  * The session is verified here from scratch, independently of middleware.ts. That looks
  * redundant and isn't: it means a gap in the middleware matcher can never become an auth
@@ -41,19 +41,19 @@ export function withAuth(handler: Handler, opts: { roles?: Role[] } = {}) {
     const scope = scopeFromRequest(request, session)
 
     try {
-      return await handler(request, { session, scope, db: AirtableClient.forScope(scope) })
+      return await handler(request, { session, scope, db: Database.forScope(scope) })
     } catch (err) {
       // Cross-branch record ids surface as 404 so an admin can't enumerate another branch's
       // ids by probing status codes. The real denial is logged in assertInScope.
       if (err instanceof ScopeError) {
         return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
       }
-      if (err instanceof AirtableUnavailableError) {
-        console.error('[AIRTABLE UNAVAILABLE]', err.message)
+      if (err instanceof DatabaseUnavailableError) {
+        console.error('[DATABASE UNAVAILABLE]', err.message)
         return NextResponse.json(
           {
             success: false,
-            error: 'Airtable API limit reached — the database is temporarily unavailable. Upgrade the Airtable plan or wait for the monthly reset.',
+            error: 'The database is temporarily unavailable. Please try again in a minute.',
           },
           { status: 503 }
         )

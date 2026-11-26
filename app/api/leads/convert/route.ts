@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
-import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
+import { DatabaseUnavailableError, ScopeError } from '@/lib/supabaseClient'
 import { normalizePhone, PHONE_ERROR } from '@/lib/phone'
 
 const EMAIL_REGEX = /^[^s@]+@[^s@]+.[^s@]+$/
@@ -66,7 +66,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
 
     return NextResponse.json({ success: true, data: student })
   } catch (err) {
-    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
+    if (err instanceof ScopeError || err instanceof DatabaseUnavailableError) throw err
     console.error('[LEAD CONVERT ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to convert lead' }, { status: 500 })
   }

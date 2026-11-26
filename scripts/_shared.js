@@ -61,4 +61,39 @@ function defaultBranchId(env) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-module.exports = { loadEnvLocal, airtableHeaders, getBranches, defaultBranchId, sleep }
+async function supabaseRequest(env, method, table, params = [], { body, prefer } = {}) {
+  const url = new URL(`/rest/v1/${table}`, env.SUPABASE_URL)
+  for (const [k, v] of params) url.searchParams.append(k, v)
+  const res = await fetch(url, {
+    method,
+    headers: {
+      apikey: env.SUPABASE_SECRET_KEY,
+      'Content-Type': 'application/json',
+      ...(prefer ? { Prefer: prefer } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`Supabase ${method} ${table}: ${res.status} ${text.slice(0, 500)}`)
+  return { rows: text ? JSON.parse(text) : [], total: Number(res.headers.get('content-range')?.split('/')[1]) }
+}
+
+/** Every row, whatever the server's page cap. `pageSize` is adjustable so paging can be tested. */
+async function supabaseSelectAll(env, table, pageSize = 1000) {
+  const out = []
+  for (;;) {
+    const { rows, total } = await supabaseRequest(
+      env, 'GET', table,
+      [['order', 'id'], ['limit', String(pageSize)], ['offset', String(out.length)]],
+      { prefer: 'count=exact' }
+    )
+    out.push(...rows)
+    if (!Number.isFinite(total)) throw new Error(`Supabase returned no row count for ${table}`)
+    if (out.length >= total) return out
+    if (rows.length === 0) throw new Error(`Supabase returned ${out.length} of ${total} rows for ${table}`)
+  }
+}
+
+module.exports = {
+  loadEnvLocal, airtableHeaders, getBranches, defaultBranchId, sleep, supabaseRequest, supabaseSelectAll,
+}

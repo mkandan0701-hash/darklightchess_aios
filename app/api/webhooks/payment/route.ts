@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { formatReceiptEmail } from '@/lib/receiptGenerator'
 import { sendReceiptEmail } from '@/lib/emailSender'
 import { sendReceiptWhatsApp } from '@/lib/whatsappSender'
-import { AirtableClient } from '@/lib/airtableClient'
+import { Database } from '@/lib/supabaseClient'
 import { RazorpayClient } from '@/lib/razorpay'
 
 interface RazorpayPaymentNotes {
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     const enrollmentDate = new Date().toISOString()
     // No user session here — Razorpay's webhook already proved authenticity via the HMAC
     // signature above. The student it enrolls already has a branch; no branch decision needed.
-    await AirtableClient.system().enrollStudent(studentId, {
+    await Database.system().enrollStudent(studentId, {
       status: 'Active',
       paymentId,
       paidAt: paidAt.toISOString(),

@@ -9,7 +9,7 @@
 //
 // ⚠️ The Airtable PAT needs the `schema.bases:write` scope.
 
-const { loadEnvLocal, airtableHeaders } = require('./_shared')
+const { loadEnvLocal, airtableHeaders } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const META = `https://api.airtable.com/v0/meta/bases/${env.AIRTABLE_BASE_ID}/tables`

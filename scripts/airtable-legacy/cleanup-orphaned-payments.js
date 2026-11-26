@@ -13,7 +13,7 @@
 // join" case (see CLAUDE.md §9), not an orphan, and deleting those would destroy legitimate
 // unlinked revenue history with no way to tell it apart from a real orphan.
 
-const { loadEnvLocal, airtableHeaders, sleep } = require('./_shared')
+const { loadEnvLocal, airtableHeaders, sleep } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const APPLY = process.argv.includes('--apply')

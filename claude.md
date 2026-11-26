@@ -2,10 +2,15 @@
 
 **Internal operations dashboard + 6 automation workflows for a 4-branch chess academy.**
 
-Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Airtable is the system of record.**
+Next.js 14 App Router · TypeScript · Tailwind · deployed on Vercel · **Supabase (Postgres) is the system of record.**
 
 > ClickUp was fully removed in commit `69b8ede`. Some API route *paths* still read `/api/clickup/*` —
-> that naming is vestigial. Every one of them talks to Airtable. Do not add ClickUp code.
+> that naming is vestigial. Every one of them talks to the database (Supabase). Do not add ClickUp code.
+
+> **Airtable → Supabase, 2026-11-26.** Airtable's monthly API quota ran out twice (10-27, 11-23) and took the
+> dashboard down. The data now lives in Supabase Postgres on the Free plan (project `darklight-aios`,
+> `ap-south-1`, ref `badvspldtfwqlmxugmiv`, org "darklightchessaios"). The old Airtable base was left
+> untouched as a fallback; its scripts are in `scripts/airtable-legacy/` and do not work against Supabase.
 
 ---
 
@@ -36,7 +41,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 | `/api/auth/branch` | POST | Superadmin switches active branch | superadmin |
 | `/api/auth/google` | GET | Google OAuth consent redirect | **superadmin** |
 | `/api/auth/google/callback` | GET | Prints `GOOGLE_REFRESH_TOKEN` | **superadmin** |
-| `/api/clickup/students` | GET/POST | List / create students (Airtable) | session, branch-scoped |
+| `/api/clickup/students` | GET/POST | List / create students (Supabase) | session, branch-scoped |
 | `/api/clickup/students/delete` | POST | Hard-delete a student, cascading to all their Payments | **superadmin**, scope-asserted |
 | `/api/clickup/students/pause` | POST | Pause/resume a student for the current month | session, scope-asserted |
 | `/api/clickup/leads` | GET/POST | List / create leads | session, branch-scoped |
@@ -78,7 +83,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 **Dependencies are deliberately minimal:** `next@14.2.0`, `react`, `react-dom`, `recharts`, `nodemailer`.
 
 - **No-new-npm-deps rule.** Auth is built on Node's built-in `crypto` and the Web Crypto API. Do not
-  add `next-auth`, `jose`, `bcrypt`, `jsonwebtoken`, an Airtable SDK, SWR, or react-query. If you
+  add `next-auth`, `jose`, `bcrypt`, `jsonwebtoken`, a Supabase SDK (`@supabase/supabase-js`), SWR, or react-query. If you
   think you need one, say so and ask first.
 - **Next 14.2 ⇒ `middleware.ts` runs on the Edge runtime, with no opt-out.** `export const runtime = 'nodejs'`
   in middleware is a Next 15.2+ feature. Middleware therefore verifies sessions with
@@ -86,7 +91,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 - **Never create a barrel file at `lib/auth/index.ts`.** It would let the Edge middleware bundle
   transitively pull in `node:crypto` and break the build. `session-edge.ts` imports only
   `base64url.ts` and `types.ts`.
-- No database. Airtable REST is called with raw `fetch` from `lib/airtableClient.ts`.
+- Supabase's REST API (PostgREST) is called with raw `fetch` from `lib/supabaseClient.ts`, using the server-only secret key.
 - All pages are `'use client'` and fetch from `/api/*` in `useEffect`. The only server components are
   `app/layout.tsx` and `app/(dashboard)/layout.tsx`.
 
@@ -94,7 +99,7 @@ All 6 automation workflows are **built and live**. This is not a greenfield proj
 
 ## 3. Branch and role model
 
-The academy runs **4 branches**. Branch identity is stored in Airtable as an **opaque id**; the
+The academy runs **4 branches**. Branch identity is stored in the database as an **opaque id**; the
 human-readable name lives in the `ACADEMY_BRANCHES` env var, so renaming a branch is an env edit and
 never a data migration.
 
@@ -144,21 +149,23 @@ Three independent planes. Each one assumes the others might have a hole.
 1. **Gate** — `middleware.ts` rejects any request without a valid session cookie. Pages get a 307 to
    `/login?next=…`; `/api/*` gets a 401 JSON body. Public prefixes are exactly
    `/login`, `/api/auth/login`, `/api/webhooks/`, `/api/cron/`.
-2. **Read scoping** — every Airtable read goes through one private `list()` method that applies a
-   `filterByFormula` derived from the caller's `Scope`. There is no unscoped read export.
+2. **Read scoping** — every database read goes through one private `list()` method that applies a
+   PostgREST filter (`branch=in.(…)`) derived from the caller's `Scope`. There is no unscoped read export.
 3. **Write authorization** — every mutation calls `assertInScope(table, recordId)` *before* patching.
 
 The invariant, stated once:
 
-> **Middleware gates the request. Every Airtable read carries a scope. Every mutation asserts the
+> **Middleware gates the request. Every database read carries a scope. Every mutation asserts the
 > target record is in scope.**
 
 Two rules that are easy to get wrong:
 
 - **Middleware sets no identity headers, and handlers never read any.** `withAuth` re-verifies the
   cookie itself with `node:crypto`. A gap in the matcher can therefore never become an auth bypass.
-- **`assertInScope` runs before `patchRecord`, not inside it.** `patchRecord` logs and returns `void`
-  on a non-OK response — authorization placed inside it would fail *open*.
+- **`assertInScope` runs before the write, and the secret key bypasses row-level security.** RLS is on
+  with no policies, so the publishable key reads nothing; the secret key ignores RLS entirely. All branch
+  isolation therefore lives in `lib/supabaseClient.ts`. Never expose `SUPABASE_SECRET_KEY` to the browser
+  or prefix it `NEXT_PUBLIC_`.
 
 Cross-branch record ids are reported to the client as **404, not 403**, so an admin cannot enumerate
 another branch's record ids by probing status codes. The real denial is logged server-side as
@@ -168,13 +175,13 @@ another branch's record ids by probing status codes. The real denial is logged s
 
 ## 5. Data model
 
-Airtable base `AIRTABLE_BASE_ID`, four tables the app uses. Field names are **snake_case in Airtable** and
-camelCase in `lib/types.ts`; the mappers in `lib/airtableClient.ts` translate.
+Supabase Postgres, four tables defined in `supabase/schema.sql` (safe to re-run). Columns are **snake_case**
+and camelCase in `lib/types.ts`; the mappers in `lib/supabaseClient.ts` translate.
 
 | Table | Fields |
 |---|---|
 | **Students** | `id`, `name`, `email`, `phone`, `age`, `coach`, `status`, `payment_status`, `amount_due`, `classes_per_week`, `duration`, `grade`, `batch_timing`, `paused_month`, `online`, `payment_link`, `invoice_id`, `created_at`, **`branch`** |
-| **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `online`, `created_at`, **`branch`** |
+| **Leads** | `id`, `name`, `email`, `phone`, `source`, `coach_assigned`, `status`, `notes`, `demo_date`, `demo_time`, `meet_link`, `online`, `created_at`, `created_time`, **`branch`** |
 | **Payments** | `id`, `student_id`, `student_name`, `amount`, `amount_paid`, `status`, `due_date`, `paid_date`, `payment_id`, `invoice_id`, `reminder_sent_at`, `created_at`, **`branch`** |
 | **Expenses** | `id`, `description`, `amount`, `category`, `date`, **`branch`** |
 
@@ -185,29 +192,25 @@ Student may also have `email: ''`; schedule-demo, payment-link, send-reminder sk
 use WhatsApp, and the daily-reminders cron (email-only) skips that student. Staff type a plain
 10-digit Indian mobile number (`components/PhoneInput.tsx`, fixed `+91` prefix); `lib/phone.ts`
 `normalizePhone` turns it into `+91…` server-side and passes `+`-prefixed international numbers
-(foreign students via the website) through unchanged. Leads' `online` checkbox (Online/Offline
-choice on Add Lead) was added on 2026-11-14 by `scripts/add-online-field.js` and is copied onto
-the Student on convert.
+(foreign students via the website) through unchanged. Leads' `online` column (Online/Offline
+choice on Add Lead, added 2026-11-14) is copied onto the Student on convert.
 
-**Expenses table** is created by `scripts/add-expenses-table.js` (`description`, `amount`,
-`category`, `date`, and a `branch` singleSelect with the 3 branch-id choices pre-created, for the
-same typecast-safety reason as below). It was missing from the base until 2026-11-01, which made
-every expense add on `/finance` fail — run the script on any new base.
+**Expenses** (`description`, `amount`, `category`, `date`, `branch`) were **not** part of the 2026-11-26 import (no export
+was provided), so the table started empty. Add old rows with `scripts/import-csv-to-supabase.js` if they turn up.
 
 **Attendance tracking was removed on 2026-10-27** (the `/attendance` page, its API routes, and the
-monthly register/report) to cut Airtable API usage. The `Attendance` table and its rows were left
-in the base untouched; nothing reads or writes it. Restore from git history if it's wanted back.
+monthly register/report) to cut Airtable API usage. The `Attendance` table was not migrated; it only exists in
+the old Airtable base. Restore from git history if it's wanted back.
 
-`Student.batch_timing` is added by `scripts/add-batch-timing-field.js`; it's set at
+`Student.batch_timing` is set at
 student-creation time and editable afterwards by a superadmin (see `updateStudentBatch`) — along
-with `online`, one of only two editable Student fields. Checkbox fields deserialize as `true` or
-**absent** (never `false`) when unchecked — the mapper treats missing as `false`.
+with `online`, one of only two editable Student fields. `online` is a real boolean column (default false).
 
 **`batch_timing` holds a per-student batch code, not free text and no longer a catalog id.** Each
 student picks their own convenient days plus a time window, encoded by `lib/batches.ts` as
 `"<days>@<start>-<end>"` — day-of-week ints (0=Sun…6=Sat, `Date.getDay()` order) sorted and
-comma-joined, then 24-hour times, e.g. `1,4@18:00-19:00` = Mon & Thu, 6–7 PM. The Airtable field is
-still plain `singleLineText` (no schema change across any of its three formats — only the values
+comma-joined, then 24-hour times, e.g. `1,4@18:00-19:00` = Mon & Thu, 6–7 PM. The column is
+plain `text` (no schema change across any of its three formats — only the values
 written into it changed) and the TypeScript property is `Student.batchId`, not `batchTiming`, to
 make clear it's a code, not prose; `isValidBatchId` whitelists it server-side the same way
 `isValidBranchId` does for branches.
@@ -217,17 +220,13 @@ Codes from the **previous fixed 9-batch catalog** (3 day-patterns × 3 time-slot
 that table, and re-saving such a student through the edit-batch modal rewrites them in the current
 format. Nothing writes legacy codes any more.
 
-`branch` is a `singleSelect` whose choices are the **branch ids** (`BRANCH_SAIBABA`, …), not the
-display names. Pre-creating those choices is what stops `typecast: true` from inventing a
-`Branch_1`-style typo choice on the first bad write.
+`branch` holds the **branch id** (`BRANCH_SAIBABA`, …), not the display name. Empty means Unassigned and is stored
+as NULL (a CHECK rejects `''`); `isValidBranchId` is the whitelist for every write.
 
-Two traps:
-
-- **`id` is not the record id.** `Student.id` / `Lead.id` / `Payment.id` in TypeScript hold Airtable's
-  `rec…` id. The tables *also* carry a legacy text column literally named `id`, holding old ClickUp
-  task ids. They are different values. Mutations address records by the `rec…` id.
-- **singleSelect fields deserialize as `{id, name, color}`**, not a string. Always read them through
-  the `selectName()` helper.
+**Ids.** `id` is the text primary key. Rows moved from Airtable keep their `rec…` id (payments' `student_id`,
+existing Razorpay invoices and payment links refer to it); leads moved in got a `led…` id (a hash of name,
+phone and time); new rows get a uuid. `payments.student_id` is deliberately *not* a foreign key — some legacy
+rows point at nothing. Every write throws on a database error; nothing logs and carries on.
 
 ---
 
@@ -235,8 +234,9 @@ Two traps:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `AIRTABLE_API_KEY` | yes | PAT. Needs `schema.bases:write` to run `scripts/add-branch-field.js`. |
-| `AIRTABLE_BASE_ID` | yes | Base id |
+| `SUPABASE_URL` | yes | `https://<ref>.supabase.co`. Server-only — never `NEXT_PUBLIC_`. |
+| `SUPABASE_SECRET_KEY` | yes | The `sb_secret_…` key (bypasses RLS). Server-only. Not the legacy `service_role` key. |
+| `SUPABASE_DB_PASSWORD` | no | Only for the Supabase CLI (`supabase db …`). The app does not read it. |
 | `AUTH_SECRET` | **yes** | ≥32 chars, `openssl rand -hex 32`. HMAC key for session tokens. |
 | `ACADEMY_USERS` | **yes** | JSON array of users (below) |
 | `ACADEMY_USERS_B64` | no | base64 of the above, for pasting into the Vercel UI |
@@ -252,7 +252,6 @@ Two traps:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` / `GOOGLE_REFRESH_TOKEN` / `GOOGLE_CALENDAR_ID` | | Meet links |
 | `CRON_SECRET` | | Vercel cron auth |
 | `COACH_POOL` | no | JSON array of coaches for lead assignment |
-| `AIRTABLE_CACHE_TTL_SECONDS` | no | default `60`; how long `list()` reads are cached per instance. `0` disables. |
 
 `ACADEMY_USERS` shape — one line, unquoted, no `#` (the `.env.local` loader in `scripts/` parses
 `^([A-Z0-9_]+)=(.*)$`):
@@ -291,19 +290,17 @@ still works in an environment without secrets.)
 | File | Role |
 |---|---|
 | `middleware.ts` | The gate. Edge runtime. Public-prefix list lives here. |
-| `lib/airtableClient.ts` | The **only** data access. Scoped instance via `forScope()` / `system()`. |
+| `lib/supabaseClient.ts` | The **only** data access (class `Database`). Scoped instance via `forScope()` / `system()`. |
 | `lib/auth/session.ts` / `session-edge.ts` | Sign + verify. Node and Edge halves, deliberately separate. |
 | `lib/auth/rbac.ts` | `scopeForSession`, `canAccessBranch` — the role → scope rules. |
 | `lib/auth/withAuth.ts` | Route wrapper. Injects `{ session, scope, db }`. |
 | `lib/branches.ts` | Branch ids, display names, `isValidBranchId` whitelist. |
 | `app/(dashboard)/layout.tsx` | Verifies session server-side, injects `SessionProvider`. |
 | `app/(dashboard)/analytics/layout.tsx`, `.../settings/layout.tsx` | Server-side `role === 'superadmin'` gate. The Sidebar hiding these links is UX only — these layouts are what actually stop a branch admin from loading the page by URL. |
-| `scripts/add-branch-field.js` | One-shot: adds the `branch` singleSelect via the Airtable Meta API. |
-| `scripts/add-batch-timing-field.js` | One-shot: adds `batch_timing` (text) to Students via the Airtable Meta API. |
-| `scripts/add-online-field.js` | One-shot: adds `online` (checkbox) to Students and Leads via the Airtable Meta API. |
-| `scripts/add-paused-month-field.js` | One-shot: adds `paused_month` (text) to Students via the Airtable Meta API. |
-| `scripts/backfill-branch.js` | One-shot: assigns branches to pre-existing records. `--apply` to write. |
-| `scripts/cleanup-orphaned-payments.js` | One-shot: deletes Payment rows whose `student_id` points at a deleted Student — retroactive fix for students deleted before `deleteStudent()` cascaded. `--apply` to write. |
+| `supabase/schema.sql` | The schema. Run it in Supabase → SQL Editor (re-runnable). RLS on, no policies. |
+| `scripts/import-csv-to-supabase.js` | One-shot: Airtable CSV exports in `data/` → Supabase. Dry run by default; `--apply` writes; `--skip-expenses`. Overwrites matching ids — do not re-run now the app is live. |
+| `scripts/backup-supabase.js` | Dumps every table to `data/backups/<time>/`. Run weekly — the Free plan has no automatic backups. |
+| `scripts/airtable-legacy/` | The old Airtable setup/backfill scripts. Reference only; they do not touch Supabase. |
 
 ---
 
@@ -311,18 +308,17 @@ still works in an environment without secrets.)
 
 ```bash
 npm install
-cp .env.example .env.local          # fill in AUTH_SECRET, ACADEMY_USERS, AIRTABLE_*
+cp .env.example .env.local          # fill in AUTH_SECRET, ACADEMY_USERS, SUPABASE_URL, SUPABASE_SECRET_KEY
 
 node scripts/hash-password.js 'pw'  # → paste into ACADEMY_USERS
-node scripts/add-branch-field.js    # adds the branch column (needs schema.bases:write)
-node scripts/backfill-branch.js     # dry run — review the output
-node scripts/backfill-branch.js --apply
+# Supabase → SQL Editor: run supabase/schema.sql   (re-runnable)
+node scripts/backup-supabase.js     # weekly; the Free plan has no automatic backups
 
 npx tsc --noEmit && npm run build
 npm run dev
 ```
 
-`tsc` is the real check: because the unscoped static reads were deleted from `AirtableClient`, any
+`tsc` is the real check: because the unscoped static reads were deleted from `Database`, any
 call site that forgot to pass a scope is a type error.
 
 ### Acceptance checks
@@ -336,7 +332,7 @@ call site that forgot to pass a scope is a type error.
    Repeat as Admin B (Kuniyamuthur); confirm the two sets are disjoint.
 5. **IDOR blocked** — take a Kuniyamuthur student's `rec…` id and, as Admin A:
    `curl -b 'dl_session=<A>' -X POST localhost:3000/api/mark-paid -d '{"studentId":"rec…","studentName":"x"}'`
-   → **404**, the Airtable record unchanged, `[RBAC DENY]` in the server log. Repeat for
+   → **404**, the record unchanged, `[RBAC DENY]` in the server log. Repeat for
    `mark-unpaid`, `send-reminder`, `payment-link`, `schedule-demo`, `leads/convert`.
 6. **Header spoofing** — the same call with `-H 'x-dl-user: manikandan@…'` → still 404.
 7. **Cookie tampering** — flip a character in `dl_session` → 401. A token signed with a different
@@ -360,15 +356,15 @@ call site that forgot to pass a scope is a type error.
   only ever patched `Students.payment_status`, so `computeStats`/Analytics (which read exclusively
   from Payments) never saw manual marks or real payments survive a refresh, and every historical
   Payment row was entered by hand. Both paths now find-or-create a properly-linked Payments row
-  (`AirtableClient.recordPayment`, used by `markStudentPaidManually` and `enrollStudent`); every row
+  (`Database.recordPayment`, used by `markStudentPaidManually` and `enrollStudent`); every row
   written going forward carries a correct `student_id`, so the join is self-healing over time without
   needing to trust or migrate old hand-entered rows. Payments that still can't be resolved to a
   student are left **Unassigned** by the backfill script rather than guessed.
-- **Reads are now paginated.** They previously capped silently at Airtable's first 100 records.
-  Records that were invisible before will now appear — that is a fix, not a regression.
+- **Reads page through every row.** `selectAll` pages with a stable `order=id` and checks the row count, so
+  nothing is silently truncated.
 - **`schedule-demo` writes the lead status `'Demo Scheduled'`** while the type union expects
-  `'demo_booked'`. With `typecast: true` Airtable silently creates a junk select choice. Pre-existing;
-  not fixed here.
+  `'demo_booked'`. `status` is plain text now, so the value is stored as given and the funnel (which counts
+  `demo_booked`) does not see it. Pre-existing; not fixed here.
 - **`/api/communications/*` takes a free-form `to:` address.** There is no record to scope it
   against, so a branch admin can email an arbitrary address. Residual risk; a follow-up should
   require a recipient drawn from the caller's own branch.
@@ -382,13 +378,11 @@ call site that forgot to pass a scope is a type error.
 - **No audit log.** `[RBAC DENY]` plus `by: session.email` on action logs is the entire trail.
   Acceptable at 3 users.
 - **Student/Lead/Expense delete is a hard delete**, no soft-delete field exists. Deleting a Student
-  **does cascade** to every linked Payment record (`AirtableClient.deleteStudent` → `findMany` +
-  `deleteRecordsBatch`, paid/pending/overdue all go, batched 10-at-a-time) — their revenue history
-  is removed along with them, by design. The Payment lookup is deliberately unscoped
-  (`findMany(..., applyScope: false)`) so it isn't silently narrowed by a superadmin's `dl_branch`
-  cookie; it still can't catch a Payment whose `student_id` was never correctly linked in the
-  first place (the pre-existing "unreliable join" case above) — `scripts/cleanup-orphaned-payments.js`
-  is the one-shot fix for any such row left behind by a student deleted before this cascade existed.
+  **does cascade** to every linked Payment (`Database.deleteStudent` issues one `DELETE … WHERE student_id = …`
+  before deleting the student; paid/pending/overdue all go) — their revenue history is removed along with
+  them, by design. The delete filters on `student_id` alone, so a superadmin's `dl_branch` cookie cannot narrow
+  it; it still cannot catch a Payment whose `student_id` was never correctly linked (the "unreliable join"
+  case above).
   Delete is **superadmin-only** for all three (Students, Leads, Expenses): enforced server-side via
   `withAuth(handler, { roles: ['superadmin'] })` on each delete route, with the Delete button hidden
   client-side as UX only for branch admins. Guarded client-side by a `window.confirm()`, not a
@@ -409,9 +403,9 @@ call site that forgot to pass a scope is a type error.
   month; `monthlyCollected` = the part from students whose `payment_status` is `paid` (reset to
   `pending` by the monthly cron, so this means paid this month); `monthlyPending` = the difference;
   `pausedStudents`/`pausedFees` are shown as a "N paused · ₹X not billed" note so the gap is
-  visible. All from the Students rows `getStats` already reads — no extra Airtable calls. It's
+  visible. All from the Students rows `getStats` already reads — no extra queries. It's
   fee-based, not the amount actually received in Razorpay. Visible to admins too.
-- **Monthly billing arrears stack, by design.** `AirtableClient.runMonthlyReset()` (the
+- **Monthly billing arrears stack, by design.** `Database.runMonthlyReset()` (the
   `/api/cron/monthly-reset` cron, 1st of the month) always *creates* a new Payment due for every
   student rather than mutating an existing one — a student who never paid last month ends up with
   two open dues (last month's stays overdue, a new one is due this month) rather than silently
@@ -429,24 +423,22 @@ call site that forgot to pass a scope is a type error.
   alone. Resuming inside the paused month re-creates the due, so a mis-click can't quietly skip a
   month's fee. Unlike `update-batch`/`update-online` the route is **not** superadmin-gated —
   pausing is routine branch work, and `assertInScope` still confines it to the caller's branch.
-- **Airtable requests are rationed — the free plan's monthly API quota ran out on 2026-10-27**
-  (`PUBLIC_API_BILLING_LIMIT_EXCEEDED` takes the whole app down; `withAuth` reports it as a 503
-  via `AirtableUnavailableError`). Keep new code inside these rules:
-  - `list()` reads are cached for `AIRTABLE_CACHE_TTL_SECONDS` (default 60), keyed on the full
-    scoped formula; every write helper invalidates its table. The cache is **per serverless
-    instance**, so a reload served by a different instance can be up to the TTL stale.
-    `AirtableClient.system()` (cron/webhooks) and `findOne`/`findMany` (find-before-write) never
-    use it.
-  - Loops that write per row use `patchRecordsBatch` / `createRecordsBatch` (10 per request) —
-    the daily-reminders cron and `runMonthlyReset` do.
-  - `assertInScope` returns the record it fetched; reuse it rather than re-reading the same row.
-  - `getStats` reads only `{status}='overdue'` Payments — the only thing `computeStats` uses them for.
+- **Supabase Free plan: no request limit, but no automatic backups, and idle projects pause.** Unlimited API
+  requests (the reason Airtable was left), 500 MB database, 5 GB egress, 2 active projects per organisation.
+  **Free projects are paused after 1 week of inactivity** — the daily reminder cron should count as activity,
+  but if the site says "database unavailable", check the Supabase dashboard and restore the project. **Run
+  `node scripts/backup-supabase.js` weekly** and keep `data/` out of git (it holds parents' personal data).
+  A paused or unreachable database surfaces as a 503 via `DatabaseUnavailableError` in `withAuth`. Pro
+  ($25/mo) adds daily backups (kept 7 days) and no pausing. Reads are not cached, so changes show at once;
+  `getStats` still reads only `status = 'overdue'` Payments.
+- **India network blocks.** Some Indian ISPs blocked `supabase.co` from February 2026. The app is unaffected
+  (browsers only talk to Vercel, whose functions run in `bom1`), but the Supabase dashboard may not open on
+  some networks — use another DNS (1.1.1.1) or a VPN.
 - **`/payments` starts at November 2026 and is scoped to one month at a time.** Every Payment due before
-  2026-11-01 was deleted (`scripts/delete-old-payments.js`), so the month switcher stops at
+  2026-11-01 was deleted (`scripts/airtable-legacy/delete-old-payments.js`), so the month switcher stops at
   `FIRST_MONTH` in the page and there is no Arrears card. Cards and table cover the month on screen,
   keyed on `dueDate`.
-- **Mark paid / unpaid write strictly.** `markPaymentPaid`/`markPaymentUnpaid`/`recordPayment`/
-  `markStudentUnpaid` use `patchRecordStrict`, which throws on an Airtable error instead of logging, so
-  the UI can't report success for a write that failed. The student-driven path settles the Payment
+- **Mark paid / unpaid write strictly.** Every write helper throws on a database error (nothing logs and carries on), so
+  the UI can't report success for a write that failed; a write that matches no row is a `ScopeError`. The student-driven path settles the Payment
   due in the *current* month (`pickCurrentMonthDue`), not an arbitrary unpaid one. Unpaid clears
   `paid_date` with `null`, not `''`.

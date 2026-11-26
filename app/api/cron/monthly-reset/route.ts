@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { AirtableClient } from '@/lib/airtableClient'
+import { Database } from '@/lib/supabaseClient'
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   console.log(`[MONTHLY RESET START] Running at ${timestamp}`)
 
   // No user session — a cron trigger authenticates via CRON_SECRET above, not a branch scope.
-  const db = AirtableClient.system()
+  const db = Database.system()
 
   try {
     const { created, skipped } = await db.runMonthlyReset()

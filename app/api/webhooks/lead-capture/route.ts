@@ -4,7 +4,7 @@ import { getCoachPool } from '@/lib/coaches'
 import { sendWelcomeEmail, sendEmailToCoach } from '@/lib/emailSender'
 import { sendWelcomeWhatsApp } from '@/lib/whatsappSender'
 import { validateAndCreateLead } from '@/lib/leadService'
-import { AirtableClient } from '@/lib/airtableClient'
+import { Database } from '@/lib/supabaseClient'
 import { branchForWebhookSecret } from '@/lib/auth/webhookSecrets'
 
 interface LeadPayload {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await validateAndCreateLead(
-      AirtableClient.system(),
+      Database.system(),
       {
         name: body.name,
         email: body.email,

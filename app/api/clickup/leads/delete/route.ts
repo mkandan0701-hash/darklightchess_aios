@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
-import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
+import { DatabaseUnavailableError, ScopeError } from '@/lib/supabaseClient'
 
 export const POST = withAuth(async (req, { db, session }) => {
   try {
@@ -17,7 +17,7 @@ export const POST = withAuth(async (req, { db, session }) => {
 
     return NextResponse.json({ success: true, leadId })
   } catch (err) {
-    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
+    if (err instanceof ScopeError || err instanceof DatabaseUnavailableError) throw err
     console.error('[DELETE LEAD ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to delete lead' }, { status: 500 })
   }

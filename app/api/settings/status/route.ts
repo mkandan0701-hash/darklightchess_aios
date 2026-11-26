@@ -7,7 +7,7 @@ export const GET = withAuth(
     return NextResponse.json({
       success: true,
       data: {
-        airtable: !!(process.env.AIRTABLE_API_KEY && process.env.AIRTABLE_BASE_ID),
+        database: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY),
         razorpay: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
         gmail: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD),
         twilio: !!(

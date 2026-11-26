@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
-import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
+import { DatabaseUnavailableError, ScopeError } from '@/lib/supabaseClient'
 import { isValidBatchId } from '@/lib/batches'
 
 export const POST = withAuth(async (req, { db, session }) => {
@@ -21,7 +21,7 @@ export const POST = withAuth(async (req, { db, session }) => {
 
     return NextResponse.json({ success: true, studentId, batchId: batchId || undefined })
   } catch (err) {
-    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
+    if (err instanceof ScopeError || err instanceof DatabaseUnavailableError) throw err
     console.error('[UPDATE STUDENT BATCH ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to update batch' }, { status: 500 })
   }

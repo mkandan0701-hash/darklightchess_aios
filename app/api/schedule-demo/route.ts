@@ -3,7 +3,7 @@ import { createGoogleMeetLink } from '@/lib/googleMeet'
 import { sendDemoConfirmationToParent, sendDemoConfirmationToCoach } from '@/lib/emailSender'
 import { sendDemoConfirmationWhatsApp } from '@/lib/whatsappSender'
 import { withAuth } from '@/lib/auth/withAuth'
-import { AirtableUnavailableError, ScopeError } from '@/lib/airtableClient'
+import { DatabaseUnavailableError, ScopeError } from '@/lib/supabaseClient'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -104,7 +104,7 @@ export const POST = withAuth(async (req, { db }) => {
       confirmedAt,
     })
   } catch (err) {
-    if (err instanceof ScopeError || err instanceof AirtableUnavailableError) throw err
+    if (err instanceof ScopeError || err instanceof DatabaseUnavailableError) throw err
     console.error('[DEMO ERROR]', err)
     return NextResponse.json({ error: 'Failed to schedule demo' }, { status: 500 })
   }

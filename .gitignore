@@ -32,3 +32,6 @@ Thumbs.db
 *.swo
 
 .vercel
+
+# Database exports and backups — contain parents' personal data, never commit or upload
+data/

@@ -13,7 +13,7 @@
 // is what stops `typecast: true` on the app's writes from inventing a fourth branch out of a
 // typo. Display names live in ACADEMY_BRANCHES.
 
-const { loadEnvLocal, airtableHeaders, getBranches } = require('./_shared')
+const { loadEnvLocal, airtableHeaders, getBranches } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const META = `https://api.airtable.com/v0/meta/bases/${env.AIRTABLE_BASE_ID}/tables`

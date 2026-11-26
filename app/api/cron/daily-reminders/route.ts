@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { AirtableClient } from '@/lib/airtableClient'
+import { Database } from '@/lib/supabaseClient'
 import { sendOverdueReminderEmail } from '@/lib/emailSender'
 
 export async function GET(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   console.log(`[CRON START] Running at ${timestamp}`)
 
   // No user session — a cron trigger authenticates via CRON_SECRET above, not a branch scope.
-  const db = AirtableClient.system()
+  const db = Database.system()
 
   let payments
   let students
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       db.getStudents(),
     ])
   } catch (err) {
-    console.error('[CRON ERROR] Airtable query failed:', err)
+    console.error('[CRON ERROR] database query failed:', err)
     return NextResponse.json(
       { success: false, error: 'Failed to fetch overdue students' },
       { status: 500 }

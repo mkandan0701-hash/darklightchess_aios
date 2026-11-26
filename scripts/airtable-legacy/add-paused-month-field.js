@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 //
-// One-shot: add the `batch_timing` (single line text) field to Students.
+// One-shot: add the `paused_month` (single line text) field to Students.
 //
-//   node scripts/add-batch-timing-field.js
+//   node scripts/add-paused-month-field.js
 //
 // Idempotent — skips if the field already exists.
 //
 // ⚠️ The Airtable PAT needs the `schema.bases:write` scope.
 
-const { loadEnvLocal, airtableHeaders } = require('./_shared')
+const { loadEnvLocal, airtableHeaders } = require('../_shared')
 
 const env = loadEnvLocal(['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'])
 const META = `https://api.airtable.com/v0/meta/bases/${env.AIRTABLE_BASE_ID}/tables`
@@ -32,24 +32,24 @@ async function main() {
     process.exit(1)
   }
 
-  if (table.fields.some((f) => f.name === 'batch_timing')) {
-    console.log(`⏭  ${TARGET_TABLE}: "batch_timing" already exists — skipped`)
+  if (table.fields.some((f) => f.name === 'paused_month')) {
+    console.log(`⏭  ${TARGET_TABLE}: "paused_month" already exists — skipped`)
     return
   }
 
   const create = await fetch(`${META}/${table.id}/fields`, {
     method: 'POST',
     headers: airtableHeaders(env),
-    body: JSON.stringify({ name: 'batch_timing', type: 'singleLineText' }),
+    body: JSON.stringify({ name: 'paused_month', type: 'singleLineText' }),
   })
 
   if (!create.ok) {
     const text = await create.text()
-    console.error(`❌ ${TARGET_TABLE}: failed to create "batch_timing": ${create.status} ${text}`)
+    console.error(`❌ ${TARGET_TABLE}: failed to create "paused_month": ${create.status} ${text}`)
     process.exit(1)
   }
 
-  console.log(`✅ ${TARGET_TABLE}: created "batch_timing"`)
+  console.log(`✅ ${TARGET_TABLE}: created "paused_month"`)
 }
 
 main().catch((err) => {

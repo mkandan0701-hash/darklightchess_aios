@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 
 interface ApiStatus {
-  airtable: boolean
+  database: boolean
   razorpay: boolean
   gmail: boolean
   twilio: boolean
@@ -25,10 +25,10 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   gstRate: '18',
 }
 
-const SERVICE_NAMES: (keyof ApiStatus)[] = ['airtable', 'razorpay', 'gmail', 'twilio']
+const SERVICE_NAMES: (keyof ApiStatus)[] = ['database', 'razorpay', 'gmail', 'twilio']
 
 const SERVICE_LABELS: Record<keyof ApiStatus, { label: string; description: string }> = {
-  airtable: { label: 'Airtable CRM', description: 'Student, lead & payment data' },
+  database: { label: 'Supabase', description: 'Student, lead & payment data' },
   razorpay: { label: 'Razorpay', description: 'Payment processing & invoices' },
   gmail: { label: 'Gmail', description: 'Email notifications' },
   twilio: { label: 'Twilio', description: 'WhatsApp messaging' },

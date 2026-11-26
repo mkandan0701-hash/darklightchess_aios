@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/withAuth'
 import { branchForNewRecord } from '@/lib/auth/rbac'
 import { isValidBatchId } from '@/lib/batches'
-import { AirtableUnavailableError } from '@/lib/airtableClient'
+import { DatabaseUnavailableError } from '@/lib/supabaseClient'
 import { normalizePhone, PHONE_ERROR } from '@/lib/phone'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -12,7 +12,7 @@ export const GET = withAuth(async (_request, { db }) => {
     const students = await db.getStudents()
     return NextResponse.json({ success: true, data: students })
   } catch (err) {
-    if (err instanceof AirtableUnavailableError) throw err
+    if (err instanceof DatabaseUnavailableError) throw err
     return NextResponse.json(
       { success: false, error: 'Failed to fetch students' },
       { status: 500 }
@@ -71,7 +71,7 @@ export const POST = withAuth(async (request, { db, scope, session }) => {
 
     return NextResponse.json({ success: true, data: student })
   } catch (err) {
-    if (err instanceof AirtableUnavailableError) throw err
+    if (err instanceof DatabaseUnavailableError) throw err
     console.error('[CREATE STUDENT ERROR]', err)
     return NextResponse.json({ success: false, error: 'Failed to create student' }, { status: 500 })
   }
