@@ -35,3 +35,6 @@ Thumbs.db
 
 # Database exports and backups — contain parents' personal data, never commit or upload
 data/
+
+# Supabase CLI scratch files
+supabase/.temp/
